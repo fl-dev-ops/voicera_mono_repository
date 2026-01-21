@@ -1,0 +1,13 @@
+fastapi
+pydantic
+torch
+numpy
+uvicorn
+transformers
+torchaudio 
+onnx 
+onnxruntime 
+onnxruntime-gpu
+pyarr
+
+loguru>=0.7.3
