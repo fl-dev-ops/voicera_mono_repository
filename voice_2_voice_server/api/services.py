@@ -206,8 +206,13 @@ def create_tts_service(tts_config: dict, sample_rate: int) -> Any:
     provider = provider_map.get(provider.lower(), provider)
 
     if provider == "Deepgram":
-        model = args.get("model") or tts_config.get("model") or "aura-asteria-en"
-        voice = args.get("speaker") or tts_config.get("speaker") or "aura-asteria-en"
+        # Deepgram voice format: aura-{voice}-en (e.g., aura-arcas-en, aura-asteria-en)
+        speaker = args.get("speaker") or tts_config.get("speaker") or "asteria"
+        # If the voice already has the full format, use it; otherwise, construct it
+        if speaker.startswith("aura-"):
+            voice = speaker
+        else:
+            voice = f"aura-{speaker}-en"
         return DeepgramTTSService(
             api_key=os.getenv("DEEPGRAM_API_KEY"),
             voice=voice,
