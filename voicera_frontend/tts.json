@@ -8,6 +8,11 @@
             "model": "aura-2",
             "voices": ["thalia", "arcas", "luna", "perseus", "orpheus", "angus", "helios", "athena", "stella", "hera", "orion", "asteria"]
           },
+          "openai": {
+            "available": true,
+            "models": ["tts-1", "tts-1-hd", "gpt-4o-mini-tts"],
+            "voices": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+          },
           "gcp": {
             "available": true,
             "models": ["Chirp3-HD", "Journey", "Neural2", "WaveNet", "Standard"],
@@ -30,6 +35,11 @@
             "available": true,
             "model": "aura-2",
             "voices": ["thalia", "arcas"]
+          },
+          "openai": {
+            "available": true,
+            "models": ["tts-1", "tts-1-hd", "gpt-4o-mini-tts"],
+            "voices": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
           },
           "gcp": {
             "available": true,
@@ -850,6 +860,23 @@
           "description": "Latest Deepgram TTS with natural voices",
           "streaming": true,
           "recommended": true
+        }
+      },
+      "openai": {
+        "tts-1": {
+          "description": "OpenAI TTS optimized for speed",
+          "streaming": true,
+          "recommended": true
+        },
+        "tts-1-hd": {
+          "description": "OpenAI TTS optimized for quality",
+          "streaming": true,
+          "recommended": false
+        },
+        "gpt-4o-mini-tts": {
+          "description": "GPT-4o mini powered TTS with natural voice",
+          "streaming": true,
+          "recommended": false
         }
       },
       "gcp": {

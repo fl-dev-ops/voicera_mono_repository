@@ -13,6 +13,7 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.google.stt import GoogleSTTService
 from pipecat.services.google.tts import GoogleTTSService
+from pipecat.services.google.llm import GoogleLLMService
 from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
 from pipecat.services.sarvam.stt import SarvamSTTService
@@ -52,23 +53,56 @@ def create_llm_service(llm_config: dict) -> Any:
     args = llm_config.get("args", {})
     model = args.get("model") or llm_config.get("model")
 
+    # Normalize provider name
+    provider_map = {
+        "openai": "OpenAI",
+        "gemini": "Gemini",
+        "google": "Gemini",
+        "kenpath": "Kenpath",
+    }
+    provider = provider_map.get(provider.lower(), provider) if provider else provider
+
     if provider == "OpenAI":
         # Extract user aggregator params from config, with defaults
         user_aggregator_params = LLMUserAggregatorParams(
             aggregation_timeout=args.get("aggregation_timeout", 0.05)
         )
 
+        resolved_model = get_llm_model(provider, model)
+        logger.info(f"OpenAI LLM: model={resolved_model}")
+
         service = OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY"),
-            model=get_llm_model(provider, model),
+            model=resolved_model,
         )
 
         # Store user aggregator params on the service instance for later use
         service._user_aggregator_params = user_aggregator_params
 
         return service
+
+    elif provider == "Gemini":
+        # Google Gemini LLM
+        resolved_model = get_llm_model(provider, model)
+        logger.info(f"Gemini LLM: model={resolved_model}")
+
+        user_aggregator_params = LLMUserAggregatorParams(
+            aggregation_timeout=args.get("aggregation_timeout", 0.05)
+        )
+
+        service = GoogleLLMService(
+            api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
+            model=resolved_model,
+        )
+
+        # Store user aggregator params on the service instance for later use
+        service._user_aggregator_params = user_aggregator_params
+
+        return service
+
     elif provider == "Kenpath":
         return KenpathLLM()
+
     else:
         raise ServiceCreationError(f"Unknown LLM provider: {provider}")
 
@@ -255,8 +289,21 @@ def create_tts_service(tts_config: dict, sample_rate: int) -> Any:
         )
 
     elif provider == "OpenAI":
-        voice = args.get("voice") or tts_config.get("voice_id")
-        return OpenAITTSService(api_key=os.getenv("OPENAI_API_KEY"), voice=voice)
+        # OpenAI TTS models: tts-1, tts-1-hd, gpt-4o-mini-tts
+        # Voices: alloy, echo, fable, onyx, nova, shimmer
+        model = tts_config.get("model") or args.get("model") or "tts-1"
+        voice = (
+            tts_config.get("speaker")
+            or args.get("voice")
+            or tts_config.get("voice_id")
+            or "alloy"
+        )
+        logger.info(f"OpenAI TTS: model={model}, voice={voice}")
+        return OpenAITTSService(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            model=model,
+            voice=voice,
+        )
 
     elif provider == "AI4Bharat":
         model = args.get("model") or tts_config.get("model")
