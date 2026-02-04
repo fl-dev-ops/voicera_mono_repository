@@ -67,10 +67,8 @@ services:
       - voicera_internal
       - traefik_proxy
     depends_on:
-      mongodb:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+      - mongodb
+      - minio
     # ========== TRAEFIK LABELS ==========
     # This tells Traefik: "Route api.DOMAIN to this container on port 8000"
     labels:
