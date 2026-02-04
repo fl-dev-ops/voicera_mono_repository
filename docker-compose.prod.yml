@@ -1,5 +1,5 @@
 services:
-  mongodb:
+  voicera-db:
     image: mongo:latest
     restart: unless-stopped
     environment:
@@ -36,7 +36,7 @@ services:
     image: devopsfl/voicera-backend:${TAG:-latest}
     restart: unless-stopped
     environment:
-      - MONGODB_HOST=mongodb
+      - MONGODB_HOST=voicera-db
       - MONGODB_PORT=27017
       - MONGODB_USER=${MONGODB_USER:-admin}
       - MONGODB_PASSWORD=${MONGODB_PASSWORD}
@@ -56,7 +56,7 @@ services:
     networks:
       - web
     depends_on:
-      - mongodb
+      - voicera-db
       - voicera-storage
     deploy:
       labels:
