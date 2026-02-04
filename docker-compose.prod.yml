@@ -100,6 +100,12 @@ services:
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_SECURE=false
+      # AI Service API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
+      - CARTESIA_API_KEY=${CARTESIA_API_KEY:-}
+      - SARVAM_API_KEY=${SARVAM_API_KEY:-}
+      - BHASHINI_API_KEY=${BHASHINI_API_KEY:-}
     networks:
       - web
     deploy:
