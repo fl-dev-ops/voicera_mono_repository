@@ -99,10 +99,10 @@ const providers: Provider[] = [
     description: "Ultra-fast LLM inference",
   },
   {
-    id: "google",
-    name: "Google",
+    id: "gemini",
+    name: "Gemini",
     capabilities: ["llm"],
-    description: "Gemini family of multimodal AI models",
+    description: "Google's Gemini family of multimodal AI models",
   },
 ]
 

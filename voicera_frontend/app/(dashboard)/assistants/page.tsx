@@ -124,8 +124,8 @@ const llmProviders = {
       "claude-3-opus-20240229",
     ],
   },
-  google: {
-    name: "Google",
+  gemini: {
+    name: "Gemini",
     models: [
       // Gemini 3 series (latest - preview)
       "gemini-3.0-pro",
