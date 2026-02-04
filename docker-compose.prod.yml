@@ -1,0 +1,155 @@
+version: "3.8"
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: voicera_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-voicera}
+    volumes:
+      - voicera_mongodb_data:/data/db
+    networks:
+      - voicera_internal
+    command: mongod --bind_ip_all
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio:
+    image: minio/minio:latest
+    container_name: voicera_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - voicera_minio_data:/data
+    networks:
+      - voicera_internal
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  backend:
+    build:
+      context: ./voicera_backend
+      dockerfile: Dockerfile
+    container_name: voicera_backend
+    restart: unless-stopped
+    environment:
+      - MONGODB_HOST=mongodb
+      - MONGODB_PORT=27017
+      - MONGODB_USER=${MONGODB_USER:-admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-voicera}
+      - MONGODB_AUTH_SOURCE=admin
+      - SECRET_KEY=${SECRET_KEY}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - VOBIZ_API_BASE_URL=https://api.vobiz.ai/api/v1
+      - VOBIZ_ACCOUNT_ID=${VOBIZ_AUTH_ID}
+      - VOBIZ_AUTH_ID=${VOBIZ_AUTH_ID}
+      - VOBIZ_AUTH_TOKEN=${VOBIZ_AUTH_TOKEN}
+      - FRONTEND_URL=https://${DOMAIN}
+      - DEBUG=False
+    networks:
+      - voicera_internal
+      - traefik_proxy
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    # ========== TRAEFIK LABELS ==========
+    # This tells Traefik: "Route api.DOMAIN to this container on port 8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.voicera-backend.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.voicera-backend.entrypoints=websecure"
+      - "traefik.http.routers.voicera-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.voicera-backend.loadbalancer.server.port=8000"
+      - "traefik.docker.network=traefik_proxy"
+
+  frontend:
+    build:
+      context: ./voicera_frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=https://api.${DOMAIN}
+        - NEXT_PUBLIC_JOHNAIC_SERVER_URL=https://voice.${DOMAIN}
+    container_name: voicera_frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - API_URL=http://backend:8000
+      - VOICE_SERVER_URL=http://voice_server:7860
+    networks:
+      - voicera_internal
+      - traefik_proxy
+    depends_on:
+      - backend
+    # ========== TRAEFIK LABELS ==========
+    # This tells Traefik: "Route DOMAIN to this container on port 3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.voicera-frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.voicera-frontend.entrypoints=websecure"
+      - "traefik.http.routers.voicera-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.voicera-frontend.loadbalancer.server.port=3000"
+      - "traefik.docker.network=traefik_proxy"
+
+  voice_server:
+    build:
+      context: ./voice_2_voice_server
+      dockerfile: Dockerfile
+    container_name: voicera_voice_server
+    restart: unless-stopped
+    environment:
+      - VOBIZ_AUTH_ID=${VOBIZ_AUTH_ID}
+      - VOBIZ_AUTH_TOKEN=${VOBIZ_AUTH_TOKEN}
+      - VOBIZ_API_BASE=https://api.vobiz.ai/api/v1
+      - VOBIZ_CALLER_ID=${VOBIZ_CALLER_ID}
+      - JOHNAIC_SERVER_URL=https://voice.${DOMAIN}
+      - JOHNAIC_WEBSOCKET_URL=wss://voice.${DOMAIN}
+      - VOICERA_BACKEND_URL=http://backend:8000
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_SECURE=false
+    networks:
+      - voicera_internal
+      - traefik_proxy
+    depends_on:
+      - backend
+      - minio
+    # ========== TRAEFIK LABELS ==========
+    # This tells Traefik: "Route voice.DOMAIN to this container on port 7860"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.voicera-voice.rule=Host(`voice.${DOMAIN}`)"
+      - "traefik.http.routers.voicera-voice.entrypoints=websecure"
+      - "traefik.http.routers.voicera-voice.tls.certresolver=letsencrypt"
+      - "traefik.http.services.voicera-voice.loadbalancer.server.port=7860"
+      - "traefik.docker.network=traefik_proxy"
+
+networks:
+  voicera_internal:
+    driver: bridge
+  traefik_proxy:
+    external: true  # Uses your existing Traefik network
+
+volumes:
+  voicera_mongodb_data:
+  voicera_minio_data:
