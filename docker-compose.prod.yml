@@ -16,7 +16,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-  minio:
+  voicera-storage:
     image: minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -44,7 +44,7 @@ services:
       - MONGODB_AUTH_SOURCE=admin
       - SECRET_KEY=${SECRET_KEY}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
-      - MINIO_ENDPOINT=tasks.voicera_minio:9000
+      - MINIO_ENDPOINT=voicera-storage:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - VOBIZ_API_BASE_URL=https://api.vobiz.ai/api/v1
@@ -57,7 +57,7 @@ services:
       - web
     depends_on:
       - mongodb
-      - minio
+      - voicera-storage
     deploy:
       labels:
         - "traefik.enable=true"
@@ -96,7 +96,7 @@ services:
       - JOHNAIC_WEBSOCKET_URL=wss://voice.${DOMAIN}
       - VOICERA_BACKEND_URL=http://backend:8000
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
-      - MINIO_ENDPOINT=tasks.voicera_minio:9000
+      - MINIO_ENDPOINT=voicera-storage:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_SECURE=false
