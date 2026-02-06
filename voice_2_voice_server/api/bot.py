@@ -40,7 +40,10 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 
 # User Turn Strategies (replaces PipelineParams.allow_interruptions)
-from pipecat.turns.user_start import VADUserTurnStartStrategy
+from pipecat.turns.user_start import (
+    VADUserTurnStartStrategy,
+    TranscriptionUserTurnStartStrategy,
+)
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
@@ -215,7 +218,11 @@ async def run_bot(
         context = LLMContext([{"role": "system", "content": system_prompt}])
 
         # Read Smart Turn config from env vars (tuneable without rebuild)
-        smart_turn_stop_secs = float(os.getenv("SMART_TURN_STOP_SECS", "3.0"))
+        # stop_secs: silence fallback — if ML model keeps saying "incomplete",
+        # force COMPLETE after this many seconds of silence. Lower = more responsive
+        # but may cut off mid-thought. Default 1.5s is good for telephony.
+        # (Pipecat default is 3.0 but that's too long for phone calls with background noise)
+        smart_turn_stop_secs = float(os.getenv("SMART_TURN_STOP_SECS", "1.5"))
         smart_turn_pre_speech_ms = float(os.getenv("SMART_TURN_PRE_SPEECH_MS", "500.0"))
         smart_turn_max_duration = float(
             os.getenv("SMART_TURN_MAX_DURATION_SECS", "8.0")
@@ -251,7 +258,10 @@ async def run_bot(
                 None  # Falls back to default TranscriptionUserTurnStopStrategy
             )
 
-        # Build start strategies — interruptions enabled by default
+        # Build start strategies — match Pipecat defaults but with configurable interruptions
+        # VADUserTurnStartStrategy: detects speech via VAD
+        # TranscriptionUserTurnStartStrategy: detects speech via STT transcription
+        # Both are needed — VAD catches speech start quickly, transcription is the backup
         enable_interruptions = os.getenv("ENABLE_INTERRUPTIONS", "true").lower() in (
             "true",
             "1",
@@ -259,6 +269,7 @@ async def run_bot(
         )
         start_strategies = [
             VADUserTurnStartStrategy(enable_interruptions=enable_interruptions),
+            TranscriptionUserTurnStartStrategy(),
         ]
 
         # Build user turn strategies
