@@ -47,6 +47,13 @@ from pipecat.turns.user_start import (
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
+# Mute strategy: suppresses all user input until bot finishes first speech (greeting)
+# This replaces the old GreetingInterruptionFilter which can't work with the new
+# turn management architecture where turns are managed inside LLMUserAggregator
+from pipecat.turns.user_mute.mute_until_first_bot_complete_user_mute_strategy import (
+    MuteUntilFirstBotCompleteUserMuteStrategy,
+)
+
 from pipecat.utils.text.base_text_aggregator import (
     BaseTextAggregator,
     Aggregation,
@@ -65,7 +72,11 @@ from .services import (
     create_tts_service,
     ServiceCreationError,
 )
-from services.audio.greeting_interruption_filter import GreetingInterruptionFilter
+
+# NOTE: GreetingInterruptionFilter removed — replaced by Pipecat's built-in
+# MuteUntilFirstBotCompleteUserMuteStrategy which works correctly with the
+# new LLMUserAggregator turn management in 0.0.101.
+# from services.audio.greeting_interruption_filter import GreetingInterruptionFilter
 from .call_recording_utils import submit_call_recording
 
 
@@ -283,6 +294,19 @@ async def run_bot(
         # enough audio to analyze, so this timeout is the only thing that fires.
         user_turn_stop_timeout = float(os.getenv("USER_TURN_STOP_TIMEOUT", "1.5"))
 
+        # Mute strategy: suppress all user input (audio, VAD, transcriptions)
+        # until the bot finishes its first speech (the greeting).
+        # This replaces the old GreetingInterruptionFilter which blocked frames
+        # in the pipeline but couldn't prevent the LLMUserAggregator's internal
+        # turn controller from starting a turn during the greeting.
+        greeting_message = agent_config.get("greeting_message", "")
+        user_mute_strategies = []
+        if len(greeting_message.strip()) > 1:
+            user_mute_strategies.append(MuteUntilFirstBotCompleteUserMuteStrategy())
+            logger.info(
+                "Greeting mute strategy enabled: user muted until greeting completes"
+            )
+
         # Build the context aggregator with VAD + Smart Turn + strategies
         context_aggregator = LLMContextAggregatorPair(
             context,
@@ -290,21 +314,24 @@ async def run_bot(
                 vad_analyzer=vad_analyzer,
                 user_turn_strategies=UserTurnStrategies(**user_turn_strategies_kwargs),
                 user_turn_stop_timeout=user_turn_stop_timeout,
+                user_mute_strategies=user_mute_strategies,
             ),
         )
 
         logger.info(
             f"Context aggregator: LLMContextAggregatorPair with "
             f"interruptions={enable_interruptions}, "
-            f"smart_turn={enable_smart_turn}"
+            f"smart_turn={enable_smart_turn}, "
+            f"mute_until_greeting={len(user_mute_strategies) > 0}"
         )
 
-        greeting_filter = GreetingInterruptionFilter()
+        # NOTE: GreetingInterruptionFilter removed — replaced by
+        # MuteUntilFirstBotCompleteUserMuteStrategy above which works
+        # correctly with the new LLMUserAggregator turn management.
 
         pipeline = Pipeline(
             [
                 transport.input(),
-                greeting_filter,
                 stt,
                 transcript.user(),
                 context_aggregator.user(),
@@ -329,7 +356,8 @@ async def run_bot(
             greeting = agent_config.get("greeting_message", "")
             if len(greeting.strip()) > 1:
                 logger.info(f"greeting: {greeting}")
-                greeting_filter.start_greeting()
+                # MuteUntilFirstBotCompleteUserMuteStrategy handles greeting
+                # protection — user input is muted until this TTS finishes
                 await task.queue_frames([TTSSpeakFrame(greeting)])
 
         @transport.event_handler("on_client_disconnected")
