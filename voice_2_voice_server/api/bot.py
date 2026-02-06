@@ -1,4 +1,11 @@
-"""Voice bot pipeline implementation using Pipecat."""
+"""Voice bot pipeline implementation using Pipecat.
+
+Upgraded to Pipecat 0.0.101 with:
+- LLMContext + LLMContextAggregatorPair (universal context aggregator)
+- Smart Turn v3 (ML-based end-of-turn detection)
+- User Turn Strategies (configurable interruption/turn-taking)
+- VAD moved from transport to LLMUserAggregatorParams (new recommended pattern)
+"""
 
 import os
 import json
@@ -9,18 +16,41 @@ from datetime import datetime
 from loguru import logger
 from dotenv import load_dotenv
 
-
-
 from pipecat.frames.frames import TTSSpeakFrame, TTSStartedFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.pipeline.task import PipelineTask
+
+# New universal context (replaces deprecated OpenAILLMContext)
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
+
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.processors.transcript_processor import TranscriptProcessor
+
+# VAD
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.utils.text.base_text_aggregator import BaseTextAggregator, Aggregation, AggregationType
+
+# Smart Turn v3 - ML-based end-of-turn detection
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import (
+    LocalSmartTurnAnalyzerV3,
+    SmartTurnParams,
+)
+
+# User Turn Strategies (replaces PipelineParams.allow_interruptions)
+from pipecat.turns.user_start import VADUserTurnStartStrategy
+from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
+from pipecat.utils.text.base_text_aggregator import (
+    BaseTextAggregator,
+    Aggregation,
+    AggregationType,
+)
 from typing import Any
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
@@ -34,10 +64,8 @@ from .services import (
     create_tts_service,
     ServiceCreationError,
 )
-# Import the new filter
 from services.audio.greeting_interruption_filter import GreetingInterruptionFilter
 from .call_recording_utils import submit_call_recording
-
 
 
 load_dotenv(override=False)
@@ -49,7 +77,7 @@ try:
     from pipecat.audio.resamplers.soxr_stream_resampler import SOXRStreamAudioResampler
     import soxr
     import time
-    
+
     def patched_initialize(self, in_rate: float, out_rate: float):
         self._in_rate = in_rate
         self._out_rate = out_rate
@@ -57,14 +85,19 @@ try:
         # "QQ" = Quick Quality (Cubic/Linear), minimal buffer
         # "VHQ" = Very High Quality (Sinc), large FIR filter buffer
         self._soxr_stream = soxr.ResampleStream(
-            in_rate=in_rate, out_rate=out_rate, num_channels=1, quality="QQ", dtype="int16"
+            in_rate=in_rate,
+            out_rate=out_rate,
+            num_channels=1,
+            quality="QQ",
+            dtype="int16",
         )
-    
+
     SOXRStreamAudioResampler._initialize = patched_initialize
-    logger.info("Monkey-patched SOXRStreamAudioResampler for low latency (Quick quality)")
+    logger.info(
+        "Monkey-patched SOXRStreamAudioResampler for low latency (Quick quality)"
+    )
 except Exception as e:
     logger.warning(f"Failed to patch SOXRStreamAudioResampler: {e}")
-
 
 
 def _get_sample_rate() -> int:
@@ -74,32 +107,32 @@ def _get_sample_rate() -> int:
 
 class FastPunctuationAggregator(BaseTextAggregator):
     """Fast aggregator that sends text immediately on punctuation - no lookahead/NLTK."""
-    
+
     def __init__(self):
         self._text = ""
-    
+
     @property
     def text(self):
         return Aggregation(text=self._text.strip(), type=AggregationType.SENTENCE)
-    
+
     async def aggregate(self, text: str):
         for char in text:
             self._text += char
-            if char in '.!?,':
+            if char in ".!?,":
                 if self._text.strip():
                     yield Aggregation(self._text.strip(), AggregationType.SENTENCE)
                     self._text = ""
-    
+
     async def flush(self):
         if self._text.strip():
             result = self._text.strip()
             self._text = ""
             return Aggregation(result, AggregationType.SENTENCE)
         return None
-    
+
     async def handle_interruption(self):
         self._text = ""
-    
+
     async def reset(self):
         self._text = ""
 
@@ -109,22 +142,28 @@ def patch_immediate_first_chunk(transport):
     output = transport.output()
     output._send_interval = 0
     output._first_chunk_sent = False
-    
+
     _orig_write = output.write_audio_frame
+
     async def _write_immediate(frame):
         if not output._first_chunk_sent:
             output._first_chunk_sent = True
             output._next_send_time = time.monotonic() - 0.001
-            logger.info(f"🚀 Sending first chunk immediately: {len(frame.audio)} bytes (bypassing queue)")
+            logger.info(
+                f"🚀 Sending first chunk immediately: {len(frame.audio)} bytes (bypassing queue)"
+            )
         await _orig_write(frame)
+
     output.write_audio_frame = _write_immediate
-    
+
     _orig_process = output.process_frame
+
     async def _reset_on_tts(frame, direction):
         if isinstance(frame, TTSStartedFrame):
             output._first_chunk_sent = False
             logger.debug(f"🔄 Reset first_chunk_sent flag for new TTS response")
         await _orig_process(frame, direction)
+
     output.process_frame = _reset_on_tts
 
 
@@ -134,92 +173,157 @@ async def run_bot(
     audiobuffer: AudioBufferProcessor,
     transcript: TranscriptProcessor,
     handle_sigint: bool = False,
-    vad_analyzer: Any = None
+    vad_analyzer: SileroVADAnalyzer = None,
 ) -> None:
     """Run the voice bot pipeline with the given configuration.
-    
+
     Args:
         transport: WebSocket transport for audio I/O
         agent_config: Agent configuration dictionary
         audiobuffer: Audio buffer processor for recording
         transcript: Transcript processor for saving transcripts
         handle_sigint: Whether to handle SIGINT for graceful shutdown
+        vad_analyzer: SileroVADAnalyzer instance (now passed to LLMUserAggregatorParams)
     """
     start_time = time.monotonic()
     sample_rate = _get_sample_rate()
-    
+
     logger.debug(f"Agent config: {json.dumps(agent_config, indent=2, default=str)}")
-    
+
     try:
         llm_config = agent_config.get("llm_model", {})
         stt_config = agent_config.get("stt_model", {})
         tts_config = agent_config.get("tts_model", {})
-        
+
         language = agent_config.get("language")
         if language:
             if not stt_config.get("language"):
                 stt_config["language"] = language
             if not tts_config.get("language"):
                 tts_config["language"] = language
-     
+
         llm = create_llm_service(llm_config)
         stt = create_stt_service(stt_config, sample_rate, vad_analyzer=vad_analyzer)
         tts = create_tts_service(tts_config, sample_rate)
-        
+
         # Use fast aggregator (no lookahead/NLTK) for lower latency
         tts._aggregate_sentences = True
         tts._text_aggregator = FastPunctuationAggregator()
 
         system_prompt = agent_config.get("system_prompt", None)
-        context = OpenAILLMContext([{"role": "system", "content": system_prompt}])
-        
-        # Use stored user aggregator params if available (for OpenAI services)
-        user_params = getattr(llm, "_user_aggregator_params", None)
-        if user_params:
-            context_aggregator = llm.create_context_aggregator(context, user_params=user_params)
-        else:
-            context_aggregator = llm.create_context_aggregator(context)
-        
-        greeting_filter = GreetingInterruptionFilter()
-        
-        pipeline = Pipeline([
-            transport.input(),
-            greeting_filter,
-            stt,
-            transcript.user(),
-            context_aggregator.user(),
-            llm,
-            tts,
-            transport.output(),
-            transcript.assistant(),
-            audiobuffer,
-            context_aggregator.assistant(),
-        ])
-        
-        task = PipelineTask(
-            pipeline,
-            params=PipelineParams(allow_interruptions=True),
+
+        # --- Pipecat 0.0.101: Universal LLMContext + LLMContextAggregatorPair ---
+        # Replaces: OpenAILLMContext + llm.create_context_aggregator()
+        context = LLMContext([{"role": "system", "content": system_prompt}])
+
+        # Read Smart Turn config from env vars (tuneable without rebuild)
+        smart_turn_stop_secs = float(os.getenv("SMART_TURN_STOP_SECS", "3.0"))
+        smart_turn_pre_speech_ms = float(os.getenv("SMART_TURN_PRE_SPEECH_MS", "500.0"))
+        smart_turn_max_duration = float(
+            os.getenv("SMART_TURN_MAX_DURATION_SECS", "8.0")
         )
+        enable_smart_turn = os.getenv("ENABLE_SMART_TURN", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+
+        # Build stop strategies
+        if enable_smart_turn:
+            logger.info(
+                f"Smart Turn v3 ENABLED: stop_secs={smart_turn_stop_secs}, "
+                f"pre_speech_ms={smart_turn_pre_speech_ms}, "
+                f"max_duration={smart_turn_max_duration}"
+            )
+            stop_strategies = [
+                TurnAnalyzerUserTurnStopStrategy(
+                    turn_analyzer=LocalSmartTurnAnalyzerV3(
+                        sample_rate=sample_rate,
+                        params=SmartTurnParams(
+                            stop_secs=smart_turn_stop_secs,
+                            pre_speech_ms=smart_turn_pre_speech_ms,
+                            max_duration_secs=smart_turn_max_duration,
+                        ),
+                    )
+                )
+            ]
+        else:
+            logger.info("Smart Turn DISABLED, using transcription-based turn detection")
+            stop_strategies = (
+                None  # Falls back to default TranscriptionUserTurnStopStrategy
+            )
+
+        # Build start strategies — interruptions enabled by default
+        enable_interruptions = os.getenv("ENABLE_INTERRUPTIONS", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        start_strategies = [
+            VADUserTurnStartStrategy(enable_interruptions=enable_interruptions),
+        ]
+
+        # Build user turn strategies
+        user_turn_strategies_kwargs = {"start": start_strategies}
+        if stop_strategies:
+            user_turn_strategies_kwargs["stop"] = stop_strategies
+
+        # Build the context aggregator with VAD + Smart Turn + strategies
+        context_aggregator = LLMContextAggregatorPair(
+            context,
+            user_params=LLMUserAggregatorParams(
+                vad_analyzer=vad_analyzer,
+                user_turn_strategies=UserTurnStrategies(**user_turn_strategies_kwargs),
+            ),
+        )
+
+        logger.info(
+            f"Context aggregator: LLMContextAggregatorPair with "
+            f"interruptions={enable_interruptions}, "
+            f"smart_turn={enable_smart_turn}"
+        )
+
+        greeting_filter = GreetingInterruptionFilter()
+
+        pipeline = Pipeline(
+            [
+                transport.input(),
+                greeting_filter,
+                stt,
+                transcript.user(),
+                context_aggregator.user(),
+                llm,
+                tts,
+                transport.output(),
+                transcript.assistant(),
+                audiobuffer,
+                context_aggregator.assistant(),
+            ]
+        )
+
+        # Pipecat 0.0.101: allow_interruptions is deprecated on PipelineParams.
+        # Interruptions are now controlled via UserTurnStrategies start strategy
+        # (enable_interruptions=True on VADUserTurnStartStrategy above).
+        task = PipelineTask(pipeline)
 
         @transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client):
             logger.info("Client connected")
             await audiobuffer.start_recording()
-            greeting = agent_config.get("greeting_message", '')
+            greeting = agent_config.get("greeting_message", "")
             if len(greeting.strip()) > 1:
                 logger.info(f"greeting: {greeting}")
                 greeting_filter.start_greeting()
                 await task.queue_frames([TTSSpeakFrame(greeting)])
-        
+
         @transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport, client):
             logger.info("Client disconnected")
             await task.cancel()
-            
-        
+
         runner = PipelineRunner(handle_sigint=handle_sigint)
         await runner.run(task)
-        
+
     except ServiceCreationError as e:
         logger.error(f"Service creation failed: {e}")
         raise
@@ -237,81 +341,122 @@ async def bot(
     stream_sid: str,
     call_sid: str,
     agent_type: str,
-    agent_config: dict
+    agent_config: dict,
 ) -> None:
     """Main bot entry point - sets up transport and runs the pipeline."""
     sample_rate = _get_sample_rate()
     session_timeout = agent_config.get("session_timeout_minutes", 10) * 60
 
     import time
+
     original_send = websocket_client.send_text
+
     async def timed_send(data):
         if "playAudio" in str(data)[:50]:
-            logger.info(f"📤 WS SEND: {len(data)} bytes at {time.perf_counter()*1000:.0f}ms")
+            logger.info(
+                f"📤 WS SEND: {len(data)} bytes at {time.perf_counter() * 1000:.0f}ms"
+            )
         return await original_send(data)
+
     websocket_client.send_text = timed_send
-    
+
     # Track call start time
     call_start_time = time.monotonic()
     start_time_utc = datetime.utcnow().isoformat()
-    
+
     # Initialize MinIO storage
     storage = MinIOStorage.from_env()
-    
+
     serializer = VobizFrameSerializer(
         stream_sid=stream_sid,
         call_sid=call_sid,
         params=VobizFrameSerializer.InputParams(
-            vobiz_sample_rate=sample_rate,
-            sample_rate=sample_rate
-        )
+            vobiz_sample_rate=sample_rate, sample_rate=sample_rate
+        ),
     )
-    
+
+    # =========================================================================
+    # VAD Configuration (env-configurable, tuneable without rebuild)
+    # =========================================================================
+    # With Smart Turn v3 enabled, stop_secs should be LOW (0.2) so the ML model
+    # gets to analyze speech quickly after a pause. The Smart Turn model then
+    # decides if the user actually finished their thought.
+    #
+    # Without Smart Turn, stop_secs should be HIGHER (0.8) as it's the only
+    # signal for end-of-turn.
+    enable_smart_turn = os.getenv("ENABLE_SMART_TURN", "true").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+    default_stop_secs = "0.2" if enable_smart_turn else "0.8"
+
+    vad_confidence = float(os.getenv("VAD_CONFIDENCE", "0.7"))
+    vad_min_volume = float(os.getenv("VAD_MIN_VOLUME", "0.6"))
+    vad_start_secs = float(os.getenv("VAD_START_SECS", "0.2"))
+    vad_stop_secs = float(os.getenv("VAD_STOP_SECS", default_stop_secs))
+
+    logger.info(
+        f"VAD config: confidence={vad_confidence}, min_volume={vad_min_volume}, "
+        f"start_secs={vad_start_secs}, stop_secs={vad_stop_secs}"
+    )
+
     vad_analyzer = SileroVADAnalyzer(
         sample_rate=sample_rate,
         params=VADParams(
-            stop_secs=0.2,
-            min_volume=0.5,
-            confidence=0.4,
-            start_secs=0.1,
-        )
+            confidence=vad_confidence,
+            min_volume=vad_min_volume,
+            start_secs=vad_start_secs,
+            stop_secs=vad_stop_secs,
+        ),
     )
-    vad_analyzer._smoothing_factor = 0.1  # Faster volume change response
-    import pipecat.transports.base_input
-    pipecat.transports.base_input.AUDIO_INPUT_TIMEOUT_SECS = 0.1
+    # NOTE: Removed aggressive monkey-patches from 0.0.98:
+    #   - vad_analyzer._smoothing_factor = 0.1 (was causing noise sensitivity, default 0.2 is better)
+    #   - AUDIO_INPUT_TIMEOUT_SECS = 0.1 (was causing false "user stopped" events, default 1.0 is correct)
+    #   - BOT_VAD_STOP_SECS = 0.2 (was too aggressive, default 0.35 is fine)
 
+    # BOT_VAD_STOP_SECS: how long bot silence before "bot stopped speaking" event.
+    # Slightly above default (0.35) to give TTS breathing room between sentences.
+    bot_vad_stop_secs = float(os.getenv("BOT_VAD_STOP_SECS", "0.5"))
     import pipecat.transports.base_output
-    pipecat.transports.base_output.BOT_VAD_STOP_SECS = 0.2
-    
+
+    pipecat.transports.base_output.BOT_VAD_STOP_SECS = bot_vad_stop_secs
+    logger.info(f"BOT_VAD_STOP_SECS set to {bot_vad_stop_secs}")
+
+    # =========================================================================
+    # Transport Configuration
+    # =========================================================================
+    # NOTE: vad_analyzer is NO LONGER passed to the transport.
+    # In Pipecat 0.0.101, VAD is passed to LLMUserAggregatorParams instead
+    # (handled in run_bot). The transport just handles audio I/O.
     transport = FastAPIWebsocketTransport(
         websocket=websocket_client,
         params=FastAPIWebsocketParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
             add_wav_header=False,
-            vad_analyzer=vad_analyzer,
             serializer=serializer,
             audio_in_passthrough=True,
             session_timeout=session_timeout,
-            audio_out_10ms_chunks=2,  # ADD THIS LINE - reduces from 4 to 1
+            audio_out_10ms_chunks=2,
         ),
     )
 
     # Optimized first audio chunk sending
     patch_immediate_first_chunk(transport)
-    
+
     # Create audio buffer processor
     audiobuffer = AudioBufferProcessor()
-    
+
     # Accumulate audio chunks and transcript lines in memory (deferred storage)
     # Using a dict to avoid nonlocal issues
     call_data = {
         "audio_chunks": [],
         "audio_sample_rate": None,
         "audio_num_channels": None,
-        "transcript_lines": []
+        "transcript_lines": [],
     }
-    
+
     @audiobuffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
         # Accumulate audio chunks in memory (no I/O during call)
@@ -321,11 +466,13 @@ async def bot(
             call_data["audio_sample_rate"] = sample_rate
             call_data["audio_num_channels"] = num_channels
         total_bytes = sum(len(c) for c in call_data["audio_chunks"])
-        logger.debug(f"Accumulated audio chunk: {len(audio)} bytes (total: {total_bytes} bytes)")
-    
+        logger.debug(
+            f"Accumulated audio chunk: {len(audio)} bytes (total: {total_bytes} bytes)"
+        )
+
     # Create transcript processor
     transcript = TranscriptProcessor()
-    
+
     @transcript.event_handler("on_transcript_update")
     async def on_transcript_update(processor, frame):
         # Accumulate transcript lines in memory (no I/O during call)
@@ -334,21 +481,34 @@ async def bot(
             line = f"{timestamp}{message.role}: {message.content}"
             logger.info(f"Transcript: {line}")
             call_data["transcript_lines"].append(line)
-    
+
     try:
-        await run_bot(transport, agent_config, audiobuffer, transcript, handle_sigint=False, vad_analyzer=vad_analyzer)
+        await run_bot(
+            transport,
+            agent_config,
+            audiobuffer,
+            transcript,
+            handle_sigint=False,
+            vad_analyzer=vad_analyzer,
+        )
     finally:
         logger.info(f"Saving call data for {call_sid}...")
-        if call_data["audio_chunks"] and call_data["audio_sample_rate"] and call_data["audio_num_channels"]:
+        if (
+            call_data["audio_chunks"]
+            and call_data["audio_sample_rate"]
+            and call_data["audio_num_channels"]
+        ):
             try:
                 await storage.save_recording_from_chunks(
-                    call_sid, 
-                    call_data["audio_chunks"], 
-                    call_data["audio_sample_rate"], 
-                    call_data["audio_num_channels"]
+                    call_sid,
+                    call_data["audio_chunks"],
+                    call_data["audio_sample_rate"],
+                    call_data["audio_num_channels"],
                 )
                 total_bytes = sum(len(c) for c in call_data["audio_chunks"])
-                logger.info(f" Saved {len(call_data['audio_chunks'])} audio chunks ({total_bytes} bytes)")
+                logger.info(
+                    f" Saved {len(call_data['audio_chunks'])} audio chunks ({total_bytes} bytes)"
+                )
             except Exception as e:
                 logger.error(f"Failed to save audio recording: {e}")
         else:
@@ -356,17 +516,21 @@ async def bot(
 
         if call_data["transcript_lines"]:
             try:
-                await storage.save_transcript_from_lines(call_sid, call_data["transcript_lines"])
-                logger.info(f" Saved {len(call_data['transcript_lines'])} transcript lines")
+                await storage.save_transcript_from_lines(
+                    call_sid, call_data["transcript_lines"]
+                )
+                logger.info(
+                    f" Saved {len(call_data['transcript_lines'])} transcript lines"
+                )
             except Exception as e:
                 logger.error(f" Failed to save transcript: {e}")
         else:
             logger.warning(f"No transcript data to save for {call_sid}")
-        
+
         await submit_call_recording(
             call_sid=call_sid,
             agent_type=agent_type,
             agent_config=agent_config,
             storage=storage,
-            call_start_time=call_start_time
+            call_start_time=call_start_time,
         )
