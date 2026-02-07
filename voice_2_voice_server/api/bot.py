@@ -24,12 +24,13 @@ from pipecat.pipeline.task import PipelineTask
 # New universal context (replaces deprecated OpenAILLMContext)
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
+    AssistantTurnStoppedMessage,
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
+    UserTurnStoppedMessage,
 )
 
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
-from pipecat.processors.transcript_processor import TranscriptProcessor
 
 # VAD
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -92,7 +93,7 @@ async def run_bot(
     transport: FastAPIWebsocketTransport,
     agent_config: dict,
     audiobuffer: AudioBufferProcessor,
-    transcript: TranscriptProcessor,
+    call_data: dict,
     handle_sigint: bool = False,
     vad_analyzer: SileroVADAnalyzer = None,
 ) -> None:
@@ -102,7 +103,7 @@ async def run_bot(
         transport: WebSocket transport for audio I/O
         agent_config: Agent configuration dictionary
         audiobuffer: Audio buffer processor for recording
-        transcript: Transcript processor for saving transcripts
+        call_data: Shared dict for accumulating transcript lines
         handle_sigint: Whether to handle SIGINT for graceful shutdown
         vad_analyzer: SileroVADAnalyzer instance (now passed to LLMUserAggregatorParams)
     """
@@ -230,16 +231,37 @@ async def run_bot(
             f"mute_until_greeting={len(user_mute_strategies) > 0}"
         )
 
+        # Transcript capture via aggregator turn events (replaces deprecated TranscriptProcessor).
+        # These fire once per complete turn with the full assembled text,
+        # instead of once per STT segment which caused fragmented transcripts.
+        @context_aggregator.user().event_handler("on_user_turn_stopped")
+        async def on_user_turn_stopped(
+            aggregator, strategy, message: UserTurnStoppedMessage
+        ):
+            if message.content.strip():
+                timestamp = f"[{message.timestamp}] " if message.timestamp else ""
+                line = f"{timestamp}user: {message.content}"
+                logger.info(f"Transcript: {line}")
+                call_data["transcript_lines"].append(line)
+
+        @context_aggregator.assistant().event_handler("on_assistant_turn_stopped")
+        async def on_assistant_turn_stopped(
+            aggregator, message: AssistantTurnStoppedMessage
+        ):
+            if message.content.strip():
+                timestamp = f"[{message.timestamp}] " if message.timestamp else ""
+                line = f"{timestamp}assistant: {message.content}"
+                logger.info(f"Transcript: {line}")
+                call_data["transcript_lines"].append(line)
+
         pipeline = Pipeline(
             [
                 transport.input(),
                 stt,
-                transcript.user(),
                 context_aggregator.user(),
                 llm,
                 tts,
                 transport.output(),
-                transcript.assistant(),
                 audiobuffer,
                 context_aggregator.assistant(),
             ]
@@ -399,24 +421,12 @@ async def bot(
             f"Accumulated audio chunk: {len(audio)} bytes (total: {total_bytes} bytes)"
         )
 
-    # Create transcript processor
-    transcript = TranscriptProcessor()
-
-    @transcript.event_handler("on_transcript_update")
-    async def on_transcript_update(processor, frame):
-        # Accumulate transcript lines in memory (no I/O during call)
-        for message in frame.messages:
-            timestamp = f"[{message.timestamp}] " if message.timestamp else ""
-            line = f"{timestamp}{message.role}: {message.content}"
-            logger.info(f"Transcript: {line}")
-            call_data["transcript_lines"].append(line)
-
     try:
         await run_bot(
             transport,
             agent_config,
             audiobuffer,
-            transcript,
+            call_data,
             handle_sigint=False,
             vad_analyzer=vad_analyzer,
         )
