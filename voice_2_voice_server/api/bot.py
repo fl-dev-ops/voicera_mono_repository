@@ -332,18 +332,23 @@ async def bot(
     # =========================================================================
     # VAD Configuration (env-configurable, tuneable without rebuild)
     # =========================================================================
-    # With Smart Turn v3 enabled, stop_secs should be LOW (0.2) so the ML model
-    # gets to analyze speech quickly after a pause. The Smart Turn model then
-    # decides if the user actually finished their thought.
+    # VAD stop_secs controls how long silence must last before VAD fires
+    # "user stopped speaking". With Smart Turn enabled, this triggers the ML
+    # model to analyze whether the turn is complete.
     #
-    # Without Smart Turn, stop_secs should be HIGHER (0.8) as it's the only
-    # signal for end-of-turn.
+    # Too low (0.2): every thinking pause triggers the ML model, which may
+    # predict COMPLETE on natural mid-sentence pauses → fragmented turns.
+    # Too high (1.0+): sluggish response — user waits too long after finishing.
+    # 0.5s is a good balance: skips brief thinking pauses, still responsive.
+    #
+    # Without Smart Turn, stop_secs is the ONLY end-of-turn signal, so 0.8s
+    # gives the user more breathing room.
     enable_smart_turn = os.getenv("ENABLE_SMART_TURN", "true").lower() in (
         "true",
         "1",
         "yes",
     )
-    default_stop_secs = "0.2" if enable_smart_turn else "0.8"
+    default_stop_secs = "0.5" if enable_smart_turn else "0.8"
 
     vad_confidence = float(os.getenv("VAD_CONFIDENCE", "0.7"))
     vad_min_volume = float(os.getenv("VAD_MIN_VOLUME", "0.6"))
