@@ -54,7 +54,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           }
         }
       },
@@ -77,7 +81,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -111,7 +119,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -145,7 +157,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -173,7 +189,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -207,7 +227,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -241,7 +265,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -275,7 +303,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -309,7 +341,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -343,7 +379,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -377,7 +417,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,
@@ -410,7 +454,11 @@
           "sarvam": {
             "available": true,
             "models": ["bulbul:v2", "bulbul:v3"],
-            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
+            "voices": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"],
+            "voices_by_model": {
+              "bulbul:v2": ["anushka", "manisha", "arya", "vidya", "abhilash", "karun", "hitesh"],
+              "bulbul:v3": ["shubh", "ritu", "amit", "sumit", "pooja", "manan", "simran", "rahul", "kavya", "ratan", "priya", "ishita", "shreya", "shruti"]
+            }
           },
           "ai4bharat": {
             "available": true,

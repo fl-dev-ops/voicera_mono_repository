@@ -322,14 +322,23 @@ export default function AgentDetailPage() {
 
     const providerData = langData.models[ttsProvider as keyof typeof langData.models] as {
       voices?: string | string[]
+      voices_by_model?: Record<string, string[]>
     }
     if (!providerData) return []
+
+    // Use model-specific voices if available
+    if (providerData.voices_by_model && ttsModel) {
+      const modelVoices = providerData.voices_by_model[ttsModel]
+      if (modelVoices && Array.isArray(modelVoices)) {
+        return modelVoices
+      }
+    }
 
     if (Array.isArray(providerData.voices)) {
       return providerData.voices
     }
     return []
-  }, [language, ttsProvider])
+  }, [language, ttsProvider, ttsModel])
 
   // Get available TTS descriptions for AI4Bharat and Bhashini providers
   const availableTTSDescriptions = useMemo(() => {
@@ -1162,7 +1171,11 @@ export default function AgentDetailPage() {
                               <label className="text-xs font-semibold text-slate-500 mb-2 block">Model</label>
                               <Select
                                 value={ttsModel}
-                                onValueChange={setTtsModel}
+                                onValueChange={(v) => {
+                                  setTtsModel(v);
+                                  // Reset voice when model changes (different models may have different voice lists)
+                                  setTtsVoice("");
+                                }}
                                 disabled={supportedTTSModels.size === 0}
                               >
                                 <SelectTrigger className="border-slate-200 rounded-md h-11 bg-slate-50 hover:bg-slate-100 transition-colors">

@@ -478,14 +478,23 @@ export default function AssistantsPage() {
 
     const providerData = langData.models[config.ttsProvider as keyof typeof langData.models] as {
       voices?: string | string[]
+      voices_by_model?: Record<string, string[]>
     }
     if (!providerData) return []
+
+    // Use model-specific voices if available
+    if (providerData.voices_by_model && config.ttsModel) {
+      const modelVoices = providerData.voices_by_model[config.ttsModel]
+      if (modelVoices && Array.isArray(modelVoices)) {
+        return modelVoices
+      }
+    }
 
     if (Array.isArray(providerData.voices)) {
       return providerData.voices
     }
     return []
-  }, [config.language, config.ttsProvider])
+  }, [config.language, config.ttsProvider, config.ttsModel])
 
   // Get LLM models for selected provider
   const availableLLMModels = useMemo(() => {
@@ -631,6 +640,10 @@ export default function AssistantsPage() {
         updated.ttsModel = ""
         updated.ttsVoice = ""
         updated.ttsDescription = ""
+      }
+      if (key === "ttsModel") {
+        // Reset voice when model changes (different models may have different voice lists)
+        updated.ttsVoice = ""
       }
       if (key === "llmProvider") {
         updated.llmModel = ""
