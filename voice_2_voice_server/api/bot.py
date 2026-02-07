@@ -68,10 +68,6 @@ from .services import (
     ServiceCreationError,
 )
 
-# NOTE: GreetingInterruptionFilter removed — replaced by Pipecat's built-in
-# MuteUntilFirstBotCompleteUserMuteStrategy which works correctly with the
-# new LLMUserAggregator turn management in 0.0.101.
-# from services.audio.greeting_interruption_filter import GreetingInterruptionFilter
 from .call_recording_utils import submit_call_recording
 
 
@@ -233,10 +229,6 @@ async def run_bot(
             f"smart_turn={enable_smart_turn}, "
             f"mute_until_greeting={len(user_mute_strategies) > 0}"
         )
-
-        # NOTE: GreetingInterruptionFilter removed — replaced by
-        # MuteUntilFirstBotCompleteUserMuteStrategy above which works
-        # correctly with the new LLMUserAggregator turn management.
 
         pipeline = Pipeline(
             [
