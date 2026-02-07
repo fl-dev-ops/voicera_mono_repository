@@ -16,7 +16,7 @@ from datetime import datetime
 from loguru import logger
 from dotenv import load_dotenv
 
-from pipecat.frames.frames import TTSSpeakFrame, TTSStartedFrame
+from pipecat.frames.frames import TTSSpeakFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
@@ -54,12 +54,7 @@ from pipecat.turns.user_mute.mute_until_first_bot_complete_user_mute_strategy im
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 
-from pipecat.utils.text.base_text_aggregator import (
-    BaseTextAggregator,
-    Aggregation,
-    AggregationType,
-)
-from typing import Any
+
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
@@ -95,68 +90,6 @@ load_dotenv(override=False)
 def _get_sample_rate() -> int:
     """Get the audio sample rate from environment."""
     return int(os.getenv("SAMPLE_RATE", "8000"))
-
-
-class FastPunctuationAggregator(BaseTextAggregator):
-    """Fast aggregator that sends text immediately on punctuation - no lookahead/NLTK."""
-
-    def __init__(self):
-        self._text = ""
-
-    @property
-    def text(self):
-        return Aggregation(text=self._text.strip(), type=AggregationType.SENTENCE)
-
-    async def aggregate(self, text: str):
-        for char in text:
-            self._text += char
-            if char in ".!?,":
-                if self._text.strip():
-                    yield Aggregation(self._text.strip(), AggregationType.SENTENCE)
-                    self._text = ""
-
-    async def flush(self):
-        if self._text.strip():
-            result = self._text.strip()
-            self._text = ""
-            return Aggregation(result, AggregationType.SENTENCE)
-        return None
-
-    async def handle_interruption(self):
-        self._text = ""
-
-    async def reset(self):
-        self._text = ""
-
-
-def patch_immediate_first_chunk(transport):
-    """Patch transport to send first audio chunk immediately with zero delay."""
-    output = transport.output()
-    output._send_interval = 0
-    output._first_chunk_sent = False
-
-    _orig_write = output.write_audio_frame
-
-    async def _write_immediate(frame):
-        if not output._first_chunk_sent:
-            output._first_chunk_sent = True
-            output._next_send_time = time.monotonic() - 0.001
-            logger.info(
-                f"🚀 Sending first chunk immediately: {len(frame.audio)} bytes (bypassing queue)"
-            )
-        return await _orig_write(frame)
-
-    output.write_audio_frame = _write_immediate
-
-    _orig_process = output.process_frame
-
-    async def _reset_on_tts(frame, direction):
-        if isinstance(frame, TTSStartedFrame):
-            output._first_chunk_sent = False
-            logger.debug(f"🔄 Reset first_chunk_sent flag for new TTS response")
-        await _orig_process(frame, direction)
-
-    output.process_frame = _reset_on_tts
 
 
 async def run_bot(
@@ -197,10 +130,6 @@ async def run_bot(
         llm = create_llm_service(llm_config)
         stt = create_stt_service(stt_config, sample_rate, vad_analyzer=vad_analyzer)
         tts = create_tts_service(tts_config, sample_rate)
-
-        # Use fast aggregator (no lookahead/NLTK) for lower latency
-        tts._aggregate_sentences = True
-        tts._text_aggregator = FastPunctuationAggregator()
 
         system_prompt = agent_config.get("system_prompt", None)
 
@@ -371,19 +300,6 @@ async def bot(
     sample_rate = _get_sample_rate()
     session_timeout = agent_config.get("session_timeout_minutes", 10) * 60
 
-    import time
-
-    original_send = websocket_client.send_text
-
-    async def timed_send(data):
-        if "playAudio" in str(data)[:50]:
-            logger.info(
-                f"📤 WS SEND: {len(data)} bytes at {time.perf_counter() * 1000:.0f}ms"
-            )
-        return await original_send(data)
-
-    websocket_client.send_text = timed_send
-
     # Track call start time
     call_start_time = time.monotonic()
     start_time_utc = datetime.utcnow().isoformat()
@@ -465,9 +381,6 @@ async def bot(
             audio_out_10ms_chunks=2,
         ),
     )
-
-    # Optimized first audio chunk sending
-    patch_immediate_first_chunk(transport)
 
     # Create audio buffer processor
     audiobuffer = AudioBufferProcessor()
