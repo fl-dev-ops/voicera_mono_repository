@@ -52,8 +52,9 @@
             "voices": "use Cartesia voice library"
           },
           "sarvam": {
-            "available": false,
-            "voices": []
+            "available": true,
+            "models": ["bulbul:v2", "bulbul:v3"],
+            "voices": ["meera", "arvind", "amol", "amruta", "diya", "karun", "maitreyi", "pavithra", "sita", "vijay", "anushka", "karan", "maya", "ravi"]
           }
         }
       },
