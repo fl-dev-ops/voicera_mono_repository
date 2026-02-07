@@ -18,7 +18,10 @@ from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
 from pipecat.services.sarvam.stt import SarvamSTTService
 from pipecat.services.sarvam.tts import SarvamTTSService
-from pipecat.processors.aggregators.llm_response import LLMUserAggregatorParams
+
+# NOTE: LLMUserAggregatorParams is no longer needed here.
+# In Pipecat 0.0.101, user aggregator params (aggregation_timeout, etc.)
+# are configured directly in bot.py via LLMContextAggregatorPair.
 
 # Local services
 from services.kenpath_llm.llm import KenpathLLM
@@ -63,42 +66,22 @@ def create_llm_service(llm_config: dict) -> Any:
     provider = provider_map.get(provider.lower(), provider) if provider else provider
 
     if provider == "OpenAI":
-        # Extract user aggregator params from config, with defaults
-        user_aggregator_params = LLMUserAggregatorParams(
-            aggregation_timeout=args.get("aggregation_timeout", 0.05)
-        )
-
         resolved_model = get_llm_model(provider, model)
         logger.info(f"OpenAI LLM: model={resolved_model}")
 
-        service = OpenAILLMService(
+        return OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY"),
             model=resolved_model,
         )
 
-        # Store user aggregator params on the service instance for later use
-        service._user_aggregator_params = user_aggregator_params
-
-        return service
-
     elif provider == "Gemini":
-        # Google Gemini LLM
         resolved_model = get_llm_model(provider, model)
         logger.info(f"Gemini LLM: model={resolved_model}")
 
-        user_aggregator_params = LLMUserAggregatorParams(
-            aggregation_timeout=args.get("aggregation_timeout", 0.05)
-        )
-
-        service = GoogleLLMService(
+        return GoogleLLMService(
             api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
             model=resolved_model,
         )
-
-        # Store user aggregator params on the service instance for later use
-        service._user_aggregator_params = user_aggregator_params
-
-        return service
 
     elif provider == "Kenpath":
         return KenpathLLM()
