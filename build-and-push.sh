@@ -5,7 +5,9 @@
 # ===========================================
 
 # Configuration
-REGISTRY="${REGISTRY:-ghcr.io}"
+# Default to Docker Hub. Override as needed:
+#   REGISTRY=docker.io REPO_OWNER=foreverlearning TAG=...
+REGISTRY="${REGISTRY:-docker.io}"
 REPO_OWNER="${REPO_OWNER:-fl-dev-ops}"
 TAG="${TAG:-latest}"
 
