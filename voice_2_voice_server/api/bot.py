@@ -297,13 +297,21 @@ async def run_bot(
         ]
 
         # Persistent memory retrieval on each user turn (best-effort)
-        if user_phone:
+        enable_memory_each_turn = os.getenv("ENABLE_MEMORY_EACH_TURN", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        if user_phone and enable_memory_each_turn:
             try:
                 from .memory_processor import VoiceraMemoryRetrievalService
 
                 processors.append(VoiceraMemoryRetrievalService(user_phone=user_phone, top_k=6))
+                logger.info("Persistent memory each turn: ENABLED")
             except Exception as e:
                 logger.warning(f"Could not init memory retrieval processor: {e}")
+        else:
+            logger.info("Persistent memory each turn: DISABLED")
 
         processors += [
             llm,

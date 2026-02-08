@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any
 
 from loguru import logger
 import requests
+import httpx
 from storage.minio_client import MinIOStorage
 
 
@@ -34,6 +35,11 @@ def _get_api_headers() -> Dict[str, str]:
     else:
         logger.warning("⚠️ INTERNAL_API_KEY not set - API calls may fail")
     return headers
+
+
+def _get_httpx_client() -> httpx.AsyncClient:
+    # Keep timeouts tight; voice turn latency matters.
+    return httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0))
 
 async def fetch_agent_config_from_backend(agent_id: str) -> dict:
     """
@@ -392,9 +398,10 @@ async def fetch_meeting_internal(meeting_id: str) -> Optional[Dict[str, Any]]:
     headers = _get_api_headers()
 
     try:
-        response = requests.get(api_endpoint, headers=headers, timeout=10)
-        response.raise_for_status()
-        return response.json()
+        async with _get_httpx_client() as client:
+            resp = await client.get(api_endpoint, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
     except Exception as e:
         logger.warning(f"Failed to fetch meeting internal: {e}")
         return None
@@ -407,9 +414,10 @@ async def memory_search(user_phone: str, query: str, top_k: int = 5) -> Optional
 
     payload = {"user_phone": user_phone, "query": query, "top_k": top_k}
     try:
-        response = requests.post(api_endpoint, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-        return response.json()
+        async with _get_httpx_client() as client:
+            resp = await client.post(api_endpoint, json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
     except Exception as e:
         logger.warning(f"Memory search failed: {e}")
         return None
@@ -432,9 +440,10 @@ async def memory_ingest(
         "tags": tags or [],
     }
     try:
-        response = requests.post(api_endpoint, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-        return True
+        async with _get_httpx_client() as client:
+            resp = await client.post(api_endpoint, json=payload, headers=headers)
+            resp.raise_for_status()
+            return True
     except Exception as e:
         logger.warning(f"Memory ingest failed: {e}")
         return False
