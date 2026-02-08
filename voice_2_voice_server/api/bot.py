@@ -137,10 +137,11 @@ async def run_bot(
             try:
                 from .backend_utils import memory_search
 
+                memory_top_k = int(os.getenv("MEMORY_TOP_K", "6"))
                 mem = await memory_search(
                     user_phone=user_phone,
                     query="student profile, preferences, goals, weak areas, what we last discussed",
-                    top_k=6,
+                    top_k=memory_top_k,
                 )
                 if mem:
                     profile = (mem.get("profile") or {}).get("summary", "")
@@ -302,12 +303,15 @@ async def run_bot(
             "1",
             "yes",
         )
+        memory_top_k = int(os.getenv("MEMORY_TOP_K", "6"))
         if user_phone and enable_memory_each_turn:
             try:
                 from .memory_processor import VoiceraMemoryRetrievalService
 
-                processors.append(VoiceraMemoryRetrievalService(user_phone=user_phone, top_k=6))
-                logger.info("Persistent memory each turn: ENABLED")
+                processors.append(
+                    VoiceraMemoryRetrievalService(user_phone=user_phone, top_k=memory_top_k)
+                )
+                logger.info(f"Persistent memory each turn: ENABLED (top_k={memory_top_k})")
             except Exception as e:
                 logger.warning(f"Could not init memory retrieval processor: {e}")
         else:
