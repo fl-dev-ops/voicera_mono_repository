@@ -290,18 +290,30 @@ async def run_bot(
                 logger.info(f"Transcript: {line}")
                 call_data["transcript_lines"].append(line)
 
-        pipeline = Pipeline(
-            [
-                transport.input(),
-                stt,
-                context_aggregator.user(),
-                llm,
-                tts,
-                transport.output(),
-                audiobuffer,
-                context_aggregator.assistant(),
-            ]
-        )
+        processors = [
+            transport.input(),
+            stt,
+            context_aggregator.user(),
+        ]
+
+        # Persistent memory retrieval on each user turn (best-effort)
+        if user_phone:
+            try:
+                from .memory_processor import VoiceraMemoryRetrievalService
+
+                processors.append(VoiceraMemoryRetrievalService(user_phone=user_phone, top_k=6))
+            except Exception as e:
+                logger.warning(f"Could not init memory retrieval processor: {e}")
+
+        processors += [
+            llm,
+            tts,
+            transport.output(),
+            audiobuffer,
+            context_aggregator.assistant(),
+        ]
+
+        pipeline = Pipeline(processors)
 
         # Pipecat 0.0.101: allow_interruptions is deprecated on PipelineParams.
         # Interruptions are now controlled via UserTurnStrategies start strategy
