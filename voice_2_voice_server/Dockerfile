@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     make \
     libffi-dev \
     libssl-dev \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies

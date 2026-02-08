@@ -187,6 +187,7 @@ interface AgentConfig {
   similarityBoost: number
   stability: number
   telephonyProvider: string
+  enableMemory: boolean
 }
 
 const defaultConfig: AgentConfig = {
@@ -211,6 +212,7 @@ const defaultConfig: AgentConfig = {
   similarityBoost: 75,
   stability: 50,
   telephonyProvider: "Vobiz",
+  enableMemory: true,
 }
 
 // Wizard steps configuration
@@ -698,6 +700,7 @@ export default function AssistantsPage() {
           greeting_message: config.greetingMessage,
           session_timeout_minutes: 10,
           language: languageName,
+          enable_memory: config.enableMemory,
           llm_model: llmModel,
           stt_model: sttModel,
           tts_model: ttsModel,
@@ -1012,6 +1015,23 @@ export default function AssistantsPage() {
                       placeholder="You are a helpful assistant that..."
                       className="min-h-[200px] rounded-lg border-slate-200 bg-white resize-none text-base focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
                     />
+                  </div>
+
+                  {/* Persistent Memory Toggle */}
+                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div>
+                      <label className="text-sm font-semibold text-slate-900">Persistent Memory</label>
+                      <p className="text-xs text-slate-500 mt-0.5">Remember past conversations with each caller across sessions</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={config.enableMemory}
+                      onClick={() => updateConfig("enableMemory", !config.enableMemory)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${config.enableMemory ? "bg-slate-900" : "bg-slate-300"}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${config.enableMemory ? "translate-x-6" : "translate-x-1"}`} />
+                    </button>
                   </div>
                 </div>
 

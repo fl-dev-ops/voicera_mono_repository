@@ -45,6 +45,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
   backend:
     image: devopsfl/voicera-backend:${TAG:-latest}
     restart: unless-stopped
@@ -85,6 +86,7 @@ services:
         - "traefik.http.routers.voicera-backend.tls.certresolver=suryaumapathyresolver"
         - "traefik.http.routers.voicera-backend.service=voicera-backend"
         - "traefik.http.services.voicera-backend.loadbalancer.server.port=8000"
+
   frontend:
     image: devopsfl/voicera-frontend:${TAG:-latest}
     restart: unless-stopped
@@ -102,6 +104,7 @@ services:
         - "traefik.http.routers.voicera-frontend.tls.certresolver=suryaumapathyresolver"
         - "traefik.http.routers.voicera-frontend.service=voicera-frontend"
         - "traefik.http.services.voicera-frontend.loadbalancer.server.port=3000"
+
   voice_server:
     image: devopsfl/voicera-voice:${TAG:-latest}
     restart: unless-stopped
@@ -126,6 +129,7 @@ services:
       - CARTESIA_API_KEY=${CARTESIA_API_KEY:-}
       - SARVAM_API_KEY=${SARVAM_API_KEY:-}
       - BHASHINI_API_KEY=${BHASHINI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
     networks:
       - web
     deploy:
@@ -137,6 +141,7 @@ services:
         - "traefik.http.routers.voicera-voice.tls.certresolver=suryaumapathyresolver"
         - "traefik.http.routers.voicera-voice.service=voicera-voice"
         - "traefik.http.services.voicera-voice.loadbalancer.server.port=7860"
+
 networks:
   web:
     external: true

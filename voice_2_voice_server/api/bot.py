@@ -131,9 +131,16 @@ async def run_bot(
 
         system_prompt = agent_config.get("system_prompt", None)
 
+        # Memory toggle: agent-level config overrides env var.
+        # Defaults to True (enabled) for backward compatibility.
+        enable_memory = agent_config.get("enable_memory", True)
+        if isinstance(enable_memory, str):
+            enable_memory = enable_memory.lower() in ("true", "1", "yes")
+        logger.info(f"Persistent memory: {'ENABLED' if enable_memory else 'DISABLED'}")
+
         # --- Persistent memory bootstrap (best-effort) ---
         # We inject a compact memory block as a SYSTEM message before the conversation begins.
-        if user_phone:
+        if user_phone and enable_memory:
             try:
                 from .backend_utils import memory_search
 
@@ -152,7 +159,13 @@ async def run_bot(
                     if hits:
                         lines.append(
                             "RELEVANT PAST SNIPPETS:\n"
-                            + "\n".join([f"- {h.get('text','').strip()}" for h in hits if h.get('text')])
+                            + "\n".join(
+                                [
+                                    f"- {h.get('text', '').strip()}"
+                                    for h in hits
+                                    if h.get("text")
+                                ]
+                            )
                         )
                     if lines:
                         agent_config["_memory_system_block"] = (
@@ -298,20 +311,27 @@ async def run_bot(
         ]
 
         # Persistent memory retrieval on each user turn (best-effort)
-        enable_memory_each_turn = os.getenv("ENABLE_MEMORY_EACH_TURN", "true").lower() in (
+        # Gated by agent-level enable_memory flag AND env var ENABLE_MEMORY_EACH_TURN
+        enable_memory_each_turn = os.getenv(
+            "ENABLE_MEMORY_EACH_TURN", "true"
+        ).lower() in (
             "true",
             "1",
             "yes",
         )
         memory_top_k = int(os.getenv("MEMORY_TOP_K", "6"))
-        if user_phone and enable_memory_each_turn:
+        if user_phone and enable_memory and enable_memory_each_turn:
             try:
                 from .memory_processor import VoiceraMemoryRetrievalService
 
                 processors.append(
-                    VoiceraMemoryRetrievalService(user_phone=user_phone, top_k=memory_top_k)
+                    VoiceraMemoryRetrievalService(
+                        user_phone=user_phone, top_k=memory_top_k
+                    )
                 )
-                logger.info(f"Persistent memory each turn: ENABLED (top_k={memory_top_k})")
+                logger.info(
+                    f"Persistent memory each turn: ENABLED (top_k={memory_top_k})"
+                )
             except Exception as e:
                 logger.warning(f"Could not init memory retrieval processor: {e}")
         else:
@@ -534,7 +554,11 @@ async def bot(
             logger.warning(f"No transcript data to save for {call_sid}")
 
         # Ingest transcript into persistent memory (best-effort)
-        if user_phone and call_data.get("transcript_lines"):
+        # Gated by agent-level enable_memory flag (defaults to True)
+        enable_memory = agent_config.get("enable_memory", True)
+        if isinstance(enable_memory, str):
+            enable_memory = enable_memory.lower() in ("true", "1", "yes")
+        if user_phone and enable_memory and call_data.get("transcript_lines"):
             try:
                 from .backend_utils import memory_ingest
 

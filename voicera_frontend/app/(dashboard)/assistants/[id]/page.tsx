@@ -202,6 +202,7 @@ export default function AgentDetailPage() {
   const [ttsVoice, setTtsVoice] = useState("")
   const [ttsDescription, setTtsDescription] = useState("")
   const [speed, setSpeed] = useState(1.0)
+  const [enableMemory, setEnableMemory] = useState(true)
 
   // Collapsible states
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(true)
@@ -345,6 +346,7 @@ export default function AgentDetailPage() {
     setTtsVoice("")
     setTtsDescription("")
     setSpeed(1.0)
+    setEnableMemory(true)
     setOriginalConfig(null)
     setHasChanges(false)
     setShowSuccess(false)
@@ -482,6 +484,10 @@ export default function AgentDetailPage() {
           }
           setSpeed(agentData.agent_config?.tts_model?.speed || 1.0)
 
+          // Load memory toggle (defaults to true for backward compatibility)
+          const memoryFlag = (agentData.agent_config as any)?.enable_memory
+          setEnableMemory(memoryFlag !== undefined ? Boolean(memoryFlag) : true)
+
           if (agentData.agent_config && typeof agentData.agent_config === 'object') {
             try {
               setOriginalConfig(JSON.parse(JSON.stringify(agentData.agent_config)))
@@ -549,6 +555,7 @@ export default function AgentDetailPage() {
       language: languageName || "", // Include top-level language field
       system_prompt: systemPrompt || "",
       greeting_message: greetingMessage || "",
+      enable_memory: enableMemory,
       llm_model: {
         name: llmProvider || "",
         ...(llmProvider && llmProvider !== "kenpath" && llmModel && { model: llmModel }),
@@ -595,7 +602,7 @@ export default function AgentDetailPage() {
 
     const hasChanged = originalNormalized !== currentNormalized
     setHasChanges(hasChanged)
-  }, [systemPrompt, greetingMessage, language, llmProvider, llmModel, sttProvider, sttModel, ttsProvider, ttsModel, ttsVoice, speed, originalConfig, agent])
+  }, [systemPrompt, greetingMessage, language, llmProvider, llmModel, sttProvider, sttModel, ttsProvider, ttsModel, ttsVoice, speed, enableMemory, originalConfig, agent])
 
   const handleSaveClick = () => {
     setShowConfirmModal(true)
@@ -621,6 +628,7 @@ export default function AgentDetailPage() {
           language: languageName, // Update the top-level language field
           system_prompt: systemPrompt,
           greeting_message: greetingMessage,
+          enable_memory: enableMemory,
           llm_model: {
             name: getProviderOfficialName(llmProvider),
             ...(llmProvider !== "kenpath" && { model: llmModel }),
@@ -1353,6 +1361,23 @@ export default function AgentDetailPage() {
                     className="min-h-[120px] border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-200"
                     placeholder="Enter the system prompt for your assistant..."
                   />
+                </div>
+
+                {/* Persistent Memory Toggle */}
+                <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-900">Persistent Memory</label>
+                    <p className="text-xs text-slate-500 mt-0.5">Remember past conversations with each caller across sessions</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enableMemory}
+                    onClick={() => setEnableMemory(!enableMemory)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enableMemory ? "bg-slate-900" : "bg-slate-300"}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableMemory ? "translate-x-6" : "translate-x-1"}`} />
+                  </button>
                 </div>
               </div>
 
