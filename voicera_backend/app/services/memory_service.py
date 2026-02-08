@@ -25,6 +25,50 @@ from app.config import settings
 from app.database import get_database
 
 
+def normalize_phone_e164(phone: str, *, default_cc: str = "91") -> str:
+    """Normalize phone numbers to a simple E.164-like format.
+
+    Assumptions (current Voicera usage): India-first.
+    Examples:
+      - "08071387434" -> "+918071387434"
+      - "8071387434"  -> "+918071387434"
+      - "+918071..."  -> "+918071..."
+      - "918071..."   -> "+918071..."
+
+    This avoids creating separate memory buckets for the same student.
+    """
+    if not phone:
+        return ""
+
+    p = str(phone).strip().replace(" ", "")
+    if not p:
+        return ""
+
+    # Keep leading '+' if present; drop other non-digits
+    if p.startswith("+"):
+        digits = "+" + "".join(ch for ch in p[1:] if ch.isdigit())
+    else:
+        digits = "".join(ch for ch in p if ch.isdigit())
+
+    if digits.startswith("+"):
+        return digits
+
+    # Local formats
+    if digits.startswith("0") and len(digits) >= 11:
+        return f"+{default_cc}{digits[1:]}"
+
+    # If number already contains country code without '+'
+    if digits.startswith(default_cc) and len(digits) > len(default_cc) + 6:
+        return f"+{digits}"
+
+    # 10-digit national number
+    if len(digits) == 10:
+        return f"+{default_cc}{digits}"
+
+    # Fallback: just prefix '+'
+    return f"+{digits}"
+
+
 def _now_utc_iso() -> str:
     return datetime.utcnow().isoformat()
 
@@ -149,6 +193,7 @@ class MemoryService:
         - Always store the FULL text in MongoDB (source of truth)
         - For vector search, index smaller chunks for better retrieval quality
         """
+        user_phone = normalize_phone_e164(user_phone, default_cc=settings.DEFAULT_COUNTRY_CODE)
         created_at = _now_utc_iso()
         tags = tags or []
         event = {
@@ -207,6 +252,7 @@ class MemoryService:
         top_k: int = 5,
     ) -> Dict[str, Any]:
         """Return profile + vector hits for this user."""
+        user_phone = normalize_phone_e164(user_phone, default_cc=settings.DEFAULT_COUNTRY_CODE)
         profile = self.db.user_memory_profile.find_one({"user_phone": user_phone}) or {}
         profile_out = {
             "user_phone": user_phone,

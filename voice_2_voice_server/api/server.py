@@ -331,6 +331,17 @@ async def websocket_endpoint(websocket: WebSocket, agent_id: str):
             elif inbound is False:
                 user_phone = meeting.get("to_number")
 
+        # Normalize phone a bit so it matches backend memory buckets
+        if user_phone:
+            p = str(user_phone).strip().replace(" ", "")
+            if p.startswith("0"):
+                p = "+91" + p[1:]
+            elif not p.startswith("+") and len(p) == 10:
+                p = "+91" + p
+            elif not p.startswith("+") and p.startswith("91"):
+                p = "+" + p
+            user_phone = p
+
         await bot(websocket, stream_sid, call_sid, agent_type, agent_config, user_phone=user_phone)
 
     except FileNotFoundError as e:
