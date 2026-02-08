@@ -41,6 +41,12 @@ def _stable_point_id(user_phone: str, text: str, source: Optional[Dict[str, Any]
     return h.hexdigest()
 
 
+def _split_on_boundaries(text: str) -> List[str]:
+    # Prefer splitting on newlines (transcripts are line-based), then sentence-ish.
+    parts = [p.strip() for p in text.split("\n") if p.strip()]
+    return parts if parts else [text.strip()]
+
+
 class MemoryService:
     def __init__(self, db: Optional[Database] = None):
         self.db = db or get_database()
@@ -84,6 +90,50 @@ class MemoryService:
     def _embed(self, texts: List[str]) -> List[List[float]]:
         return [list(v) for v in self._embedder.embed(texts)]
 
+    def _chunk_text(self, text: str, *, max_chars: int = 700, overlap: int = 120) -> List[str]:
+        """Chunk long text into overlapping windows.
+
+        Rationale: embedding/retrieval works far better on small chunks than on
+        an entire call transcript.
+
+        - max_chars ~ 500-900 is a good range for semantic retrieval
+        - overlap preserves continuity across boundaries
+        """
+        text = (text or "").strip()
+        if not text:
+            return []
+        if len(text) <= max_chars:
+            return [text]
+
+        units = _split_on_boundaries(text)
+        chunks: List[str] = []
+        cur = ""
+        for u in units:
+            if not cur:
+                cur = u
+            elif len(cur) + 1 + len(u) <= max_chars:
+                cur = cur + "\n" + u
+            else:
+                chunks.append(cur)
+                # start next with overlap tail
+                tail = cur[-overlap:] if overlap > 0 and len(cur) > overlap else ""
+                cur = (tail + "\n" + u).strip() if tail else u
+
+        if cur:
+            chunks.append(cur)
+
+        # Final pass: if any chunk still too big (rare), hard-split
+        final: List[str] = []
+        for c in chunks:
+            if len(c) <= max_chars:
+                final.append(c)
+            else:
+                for i in range(0, len(c), max_chars):
+                    piece = c[i : i + max_chars].strip()
+                    if piece:
+                        final.append(piece)
+        return final
+
     # ------------------------- Public API -------------------------
     def ingest(
         self,
@@ -93,13 +143,19 @@ class MemoryService:
         source: Optional[Dict[str, Any]] = None,
         tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Store a memory event and index it for vector search."""
+        """Store a memory event and index it for vector search.
+
+        Strategy:
+        - Always store the FULL text in MongoDB (source of truth)
+        - For vector search, index smaller chunks for better retrieval quality
+        """
         created_at = _now_utc_iso()
+        tags = tags or []
         event = {
             "user_phone": user_phone,
             "text": text,
             "source": source or {},
-            "tags": tags or [],
+            "tags": tags,
             "created_at": created_at,
         }
 
@@ -108,27 +164,40 @@ class MemoryService:
 
         # Vector upsert (best-effort)
         try:
-            point_id = _stable_point_id(user_phone, text, source)
-            vec = self._embed([text])[0]
-            payload = {
-                "user_phone": user_phone,
-                "text": text,
-                "created_at": created_at,
-                "source": source or {},
-                "tags": tags or [],
-            }
+            chunks = self._chunk_text(text, max_chars=700, overlap=120)
+            # If it's short, keep as a single chunk.
+            if not chunks:
+                chunks = [text]
+
+            vectors = self._embed(chunks)
+            points: List[qm.PointStruct] = []
+            for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+                chunk_source = dict(source or {})
+                chunk_source.update({"chunk_index": i, "chunk_count": len(chunks)})
+
+                point_id = _stable_point_id(user_phone, chunk, chunk_source)
+                payload = {
+                    "user_phone": user_phone,
+                    "text": chunk,
+                    "created_at": created_at,
+                    "source": chunk_source,
+                    "tags": tags,
+                }
+                points.append(qm.PointStruct(id=point_id, vector=vec, payload=payload))
+
             self._qdrant.upsert(
                 collection_name=self._collection,
-                points=[qm.PointStruct(id=point_id, vector=vec, payload=payload)],
+                points=points,
                 wait=False,
             )
         except Exception as e:
             logger.warning(f"Vector upsert failed (continuing): {e}")
 
         # Update lightweight profile summary (Option A)
+        # For long transcripts, only feed a compact excerpt.
         self._update_profile_summary(user_phone=user_phone, text=text)
 
-        return {"status": "success", "mongo_id": str(mongo_id)}
+        return {"status": "success", "mongo_id": str(mongo_id), "chunk_count": len(self._chunk_text(text, max_chars=700, overlap=120)) or 1}
 
     def search(
         self,
