@@ -1,5 +1,6 @@
 """FastAPI server for Vobiz telephony integration with optimized TCP settings."""
 
+import asyncio
 import os
 import socket
 import json
@@ -32,9 +33,10 @@ AGENT_CONFIGS_DIR = Path("agent_configs")
 
 # === TCP_NODELAY WebSocket Protocol ===
 
+
 def create_nodelay_websocket_protocol():
     """Create a WebSocket protocol class with TCP_NODELAY enabled.
-    
+
     This disables Nagle's algorithm for lower latency on small packets,
     which is critical for real-time voice applications.
     """
@@ -51,20 +53,24 @@ def create_nodelay_websocket_protocol():
                         logger.debug("TCP_NODELAY enabled on WebSocket connection")
                 except Exception as e:
                     logger.warning(f"Failed to set TCP_NODELAY: {e}")
-                
+
                 super().connection_made(transport)
 
         return NoDelayWebSocketProtocol
-    
+
     except ImportError:
-        logger.warning("Could not import WebSocketProtocol from uvicorn, TCP_NODELAY not available")
+        logger.warning(
+            "Could not import WebSocketProtocol from uvicorn, TCP_NODELAY not available"
+        )
         return None
 
 
 # === Pydantic Models ===
 
+
 class OutboundCallRequest(BaseModel):
     """Request model for initiating outbound calls."""
+
     customer_number: str
     agent_id: str
     custom_field: Optional[str] = None
@@ -72,6 +78,7 @@ class OutboundCallRequest(BaseModel):
 
 
 # === Helper Functions ===
+
 
 def _get_env_or_raise(key: str) -> str:
     """Get environment variable or raise ValueError."""
@@ -121,8 +128,10 @@ def make_outbound_call_vobiz(
         "answer_method": "POST",
     }
 
-    logger.info(f"📞 Outbound call: {from_number} → {customer_number} (agent: {agent_id})")
-    
+    logger.info(
+        f"📞 Outbound call: {from_number} → {customer_number} (agent: {agent_id})"
+    )
+
     vobiz_api_url = f"{vobiz_api_base_url}/Account/{auth_id}/Call/"
     response = requests.post(vobiz_api_url, json=payload, headers=headers, timeout=30)
     response.raise_for_status()
@@ -135,13 +144,13 @@ def make_outbound_call_vobiz(
 def _build_stream_xml(websocket_url: str) -> str:
     """Build Vobiz XML response for WebSocket streaming."""
     sample_rate = int(os.environ.get("SAMPLE_RATE", "8000"))
-    
+
     # Use L16 for 16kHz per Vobiz spec (μ-law is 8kHz only)
     if sample_rate == 16000:
         content_type = "audio/x-l16;rate=16000"
     else:
         content_type = f"audio/x-mulaw;rate={sample_rate}"
-        
+
     logger.info(f"Sending XML with contentType: {content_type}")
     return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -171,6 +180,7 @@ app.add_middleware(
 
 
 # === Routes ===
+
 
 @app.get("/")
 async def root():
@@ -313,16 +323,36 @@ async def websocket_endpoint(websocket: WebSocket, agent_id: str):
 
         start_info = data.get("start", {})
         call_sid = start_info.get("callSid") or start_info.get("callId", "unknown")
-        stream_sid = start_info.get("streamSid") or start_info.get("streamId", "unknown")
+        stream_sid = start_info.get("streamSid") or start_info.get(
+            "streamId", "unknown"
+        )
 
         logger.info(f"📞 Call started: call_sid={call_sid}, stream_sid={stream_sid}")
         logger.debug(f"📋 Start info: {start_info}")
 
-        # Resolve student phone number for persistent memory association
-        # (meeting is created on StartApp webhook with from/to numbers)
+        # Resolve student phone number for persistent memory association.
+        # The meeting is created by the /answer webhook (log_meeting) which runs
+        # in parallel with this WebSocket handler. There's a race condition where
+        # the WebSocket connects before the meeting is persisted in the backend.
+        # Retry a few times with a short delay to handle this.
         from .backend_utils import fetch_meeting_internal
 
-        meeting = await fetch_meeting_internal(call_sid)
+        meeting = None
+        for attempt in range(4):
+            meeting = await fetch_meeting_internal(call_sid)
+            if meeting:
+                break
+            if attempt < 3:
+                logger.debug(
+                    f"Meeting not found yet (attempt {attempt + 1}/4), retrying in 0.5s..."
+                )
+                await asyncio.sleep(0.5)
+
+        if not meeting:
+            logger.warning(
+                f"⚠️ Could not fetch meeting after 4 attempts — user_phone will be None (no memory)"
+            )
+
         user_phone = None
         if meeting:
             inbound = meeting.get("inbound")
@@ -342,7 +372,18 @@ async def websocket_endpoint(websocket: WebSocket, agent_id: str):
                 p = "+" + p
             user_phone = p
 
-        await bot(websocket, stream_sid, call_sid, agent_type, agent_config, user_phone=user_phone)
+        logger.info(
+            f"📱 Resolved user_phone={user_phone} for memory (inbound={meeting.get('inbound') if meeting else 'N/A'})"
+        )
+
+        await bot(
+            websocket,
+            stream_sid,
+            call_sid,
+            agent_type,
+            agent_config,
+            user_phone=user_phone,
+        )
 
     except FileNotFoundError as e:
         logger.error(f"❌ {e}")
@@ -356,7 +397,7 @@ async def websocket_endpoint(websocket: WebSocket, agent_id: str):
 
 def run_server(host: str = "0.0.0.0", port: int = 7860, log_level: str = "info"):
     """Run the server with optimized settings for low-latency voice applications.
-    
+
     Args:
         host: Host to bind to
         port: Port to bind to
@@ -382,7 +423,9 @@ def run_server(host: str = "0.0.0.0", port: int = 7860, log_level: str = "info")
     nodelay_protocol = create_nodelay_websocket_protocol()
     if nodelay_protocol:
         config.ws_protocol_class = nodelay_protocol
-        logger.info("✅ TCP_NODELAY enabled for WebSocket connections (Nagle's algorithm disabled)")
+        logger.info(
+            "✅ TCP_NODELAY enabled for WebSocket connections (Nagle's algorithm disabled)"
+        )
     else:
         logger.warning("⚠️ Could not enable TCP_NODELAY, latency may be affected")
 
