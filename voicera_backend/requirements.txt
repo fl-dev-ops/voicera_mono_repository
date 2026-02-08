@@ -12,3 +12,7 @@ mailtrap>=2.0.0
 minio>=7.2.0
 httpx>=0.25.0
 
+# Memory / Vector search
+qdrant-client>=1.9.1
+fastembed>=0.3.4
+

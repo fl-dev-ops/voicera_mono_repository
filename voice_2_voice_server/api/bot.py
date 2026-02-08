@@ -94,6 +94,7 @@ async def run_bot(
     agent_config: dict,
     audiobuffer: AudioBufferProcessor,
     call_data: dict,
+    user_phone: str | None = None,
     handle_sigint: bool = False,
     vad_analyzer: SileroVADAnalyzer = None,
 ) -> None:
@@ -130,9 +131,44 @@ async def run_bot(
 
         system_prompt = agent_config.get("system_prompt", None)
 
+        # --- Persistent memory bootstrap (best-effort) ---
+        # We inject a compact memory block as a SYSTEM message before the conversation begins.
+        if user_phone:
+            try:
+                from .backend_utils import memory_search
+
+                mem = await memory_search(
+                    user_phone=user_phone,
+                    query="student profile, preferences, goals, weak areas, what we last discussed",
+                    top_k=6,
+                )
+                if mem:
+                    profile = (mem.get("profile") or {}).get("summary", "")
+                    hits = mem.get("hits") or []
+                    lines = []
+                    if profile.strip():
+                        lines.append("PROFILE SUMMARY:\n" + profile.strip())
+                    if hits:
+                        lines.append(
+                            "RELEVANT PAST SNIPPETS:\n"
+                            + "\n".join([f"- {h.get('text','').strip()}" for h in hits if h.get('text')])
+                        )
+                    if lines:
+                        agent_config["_memory_system_block"] = (
+                            "You have persistent memory about this student. Use it to personalize.\n\n"
+                            + "\n\n".join(lines)
+                        )
+            except Exception as e:
+                logger.warning(f"Memory bootstrap failed (continuing): {e}")
+
         # --- Pipecat 0.0.101: Universal LLMContext + LLMContextAggregatorPair ---
         # Replaces: OpenAILLMContext + llm.create_context_aggregator()
-        context = LLMContext([{"role": "system", "content": system_prompt}])
+        context_messages = [{"role": "system", "content": system_prompt}]
+        memory_block = agent_config.get("_memory_system_block")
+        if memory_block:
+            context_messages.append({"role": "system", "content": memory_block})
+
+        context = LLMContext(context_messages)
 
         # Read Smart Turn config from env vars (tuneable without rebuild)
         # stop_secs: silence fallback — if ML model keeps saying "incomplete",
@@ -309,6 +345,7 @@ async def bot(
     call_sid: str,
     agent_type: str,
     agent_config: dict,
+    user_phone: str | None = None,
 ) -> None:
     """Main bot entry point - sets up transport and runs the pipeline."""
     sample_rate = _get_sample_rate()
@@ -432,6 +469,7 @@ async def bot(
             agent_config,
             audiobuffer,
             call_data,
+            user_phone=user_phone,
             handle_sigint=False,
             vad_analyzer=vad_analyzer,
         )
@@ -470,6 +508,21 @@ async def bot(
                 logger.error(f" Failed to save transcript: {e}")
         else:
             logger.warning(f"No transcript data to save for {call_sid}")
+
+        # Ingest transcript into persistent memory (best-effort)
+        if user_phone and call_data.get("transcript_lines"):
+            try:
+                from .backend_utils import memory_ingest
+
+                transcript_text = "\n".join(call_data["transcript_lines"])
+                await memory_ingest(
+                    user_phone=user_phone,
+                    text=transcript_text,
+                    source={"call_sid": call_sid, "agent_type": agent_type},
+                    tags=["call_transcript"],
+                )
+            except Exception as e:
+                logger.warning(f"Memory ingest failed (continuing): {e}")
 
         await submit_call_recording(
             call_sid=call_sid,

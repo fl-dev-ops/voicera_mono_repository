@@ -318,7 +318,20 @@ async def websocket_endpoint(websocket: WebSocket, agent_id: str):
         logger.info(f"📞 Call started: call_sid={call_sid}, stream_sid={stream_sid}")
         logger.debug(f"📋 Start info: {start_info}")
 
-        await bot(websocket, stream_sid, call_sid, agent_type, agent_config)
+        # Resolve student phone number for persistent memory association
+        # (meeting is created on StartApp webhook with from/to numbers)
+        from .backend_utils import fetch_meeting_internal
+
+        meeting = await fetch_meeting_internal(call_sid)
+        user_phone = None
+        if meeting:
+            inbound = meeting.get("inbound")
+            if inbound is True:
+                user_phone = meeting.get("from_number")
+            elif inbound is False:
+                user_phone = meeting.get("to_number")
+
+        await bot(websocket, stream_sid, call_sid, agent_type, agent_config, user_phone=user_phone)
 
     except FileNotFoundError as e:
         logger.error(f"❌ {e}")

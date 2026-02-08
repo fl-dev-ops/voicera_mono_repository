@@ -379,3 +379,62 @@ async def submit_call_recording(
     except Exception as e:
         logger.error(f"❌ Error in submit_call_recording: {e}")
         logger.debug(traceback.format_exc())
+
+
+# =========================================================================
+# Memory API (backend)
+# =========================================================================
+
+async def fetch_meeting_internal(meeting_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch meeting metadata using bot API key."""
+    backend_url = _get_backend_url()
+    api_endpoint = f"{backend_url}/api/v1/meetings/{meeting_id}/internal"
+    headers = _get_api_headers()
+
+    try:
+        response = requests.get(api_endpoint, headers=headers, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.warning(f"Failed to fetch meeting internal: {e}")
+        return None
+
+
+async def memory_search(user_phone: str, query: str, top_k: int = 5) -> Optional[Dict[str, Any]]:
+    backend_url = _get_backend_url()
+    api_endpoint = f"{backend_url}/api/v1/memory/search"
+    headers = _get_api_headers()
+
+    payload = {"user_phone": user_phone, "query": query, "top_k": top_k}
+    try:
+        response = requests.post(api_endpoint, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.warning(f"Memory search failed: {e}")
+        return None
+
+
+async def memory_ingest(
+    user_phone: str,
+    text: str,
+    source: Optional[Dict[str, Any]] = None,
+    tags: Optional[list] = None,
+) -> bool:
+    backend_url = _get_backend_url()
+    api_endpoint = f"{backend_url}/api/v1/memory/ingest"
+    headers = _get_api_headers()
+
+    payload = {
+        "user_phone": user_phone,
+        "text": text,
+        "source": source or {},
+        "tags": tags or [],
+    }
+    try:
+        response = requests.post(api_endpoint, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        logger.warning(f"Memory ingest failed: {e}")
+        return False

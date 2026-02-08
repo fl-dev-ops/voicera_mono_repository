@@ -2,6 +2,8 @@ version: '3.8'
 
 services:
   mongodb:
+    # NOTE: Community MongoDB doesn't include Atlas Search / vector search.
+    # We'll keep this for now as the source-of-truth DB.
     image: mongo:latest
     container_name: voicera_mongodb
     restart: unless-stopped
@@ -37,10 +39,13 @@ services:
       - ./voicera_backend/.env
     environment:
       - MONGODB_HOST=mongodb
+      - QDRANT_URL=http://qdrant:6333
     depends_on:
       mongodb:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
     volumes:
       - ./voicera_backend:/app
@@ -48,6 +53,22 @@ services:
     networks:
       - voicera_network
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: voicera_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - voicera_network
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "wget -qO- http://localhost:6333/healthz | grep -q true"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   minio:
     image: minio/minio:latest
@@ -104,6 +125,7 @@ services:
     working_dir: /app
     environment:
       - VOICERA_BACKEND_URL=http://backend:8000
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
@@ -129,6 +151,8 @@ volumes:
   mongodb_data:
     driver: local
   minio_data:
+    driver: local
+  qdrant_data:
     driver: local
 
 networks:

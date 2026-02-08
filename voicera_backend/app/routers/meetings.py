@@ -63,6 +63,22 @@ async def update_meeting(
     return result
 
 
+@router.get("/{meeting_id}/internal", response_model=Dict[str, Any])
+async def get_meeting_internal(
+    meeting_id: str,
+    _: bool = Depends(verify_api_key)
+):
+    """Internal (bot) endpoint to fetch meeting metadata.
+
+    Voice server can use this to resolve from/to numbers and inbound/outbound
+    for memory association.
+    """
+    meeting = meeting_service.fetch_meeting_details(meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+    return meeting
+
+
 # ============================================================================
 # Frontend Endpoints (User JWT Authentication)
 # ============================================================================

@@ -35,6 +35,11 @@ class Settings:
     
     # Internal API Key for service-to-service communication (bot -> backend)
     INTERNAL_API_KEY: str = os.getenv("INTERNAL_API_KEY", "")
+
+    # Vector DB (Qdrant) for memory search
+    QDRANT_URL: str = os.getenv("QDRANT_URL", "http://localhost:6333")
+    QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "voicera_memory")
+    MEMORY_EMBED_MODEL: str = os.getenv("MEMORY_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
     
     # Vobiz API Configuration
     VOBIZ_API_BASE_URL: str = os.getenv("VOBIZ_API_BASE_URL", "https://api.vobiz.ai/api/v1")
