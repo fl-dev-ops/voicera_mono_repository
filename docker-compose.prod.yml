@@ -32,6 +32,19 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+
+  voicera-qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - voicera_qdrant_data:/qdrant/storage
+    networks:
+      - web
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "wget -qO- http://localhost:6333/healthz | grep -q true"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
   backend:
     image: devopsfl/voicera-backend:${TAG:-latest}
     restart: unless-stopped
@@ -44,6 +57,10 @@ services:
       - MONGODB_AUTH_SOURCE=admin
       - SECRET_KEY=${SECRET_KEY}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - QDRANT_URL=http://voicera-qdrant:6333
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-voicera_memory}
+      - MEMORY_EMBED_MODEL=${MEMORY_EMBED_MODEL:-BAAI/bge-small-en-v1.5}
+      - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-91}
       - MINIO_ENDPOINT=voicera-storage:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
@@ -58,6 +75,7 @@ services:
     depends_on:
       - voicera-db
       - voicera-storage
+      - voicera-qdrant
     deploy:
       labels:
         - "traefik.enable=true"
@@ -96,6 +114,8 @@ services:
       - JOHNAIC_WEBSOCKET_URL=wss://voice.${DOMAIN}
       - VOICERA_BACKEND_URL=http://backend:8000
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - ENABLE_MEMORY_EACH_TURN=${ENABLE_MEMORY_EACH_TURN:-true}
+      - MEMORY_TOP_K=${MEMORY_TOP_K:-6}
       - MINIO_ENDPOINT=voicera-storage:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
@@ -124,4 +144,6 @@ volumes:
   voicera_mongodb_data:
     driver: local
   voicera_minio_data:
+    driver: local
+  voicera_qdrant_data:
     driver: local
