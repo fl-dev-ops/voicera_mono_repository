@@ -246,3 +246,41 @@ def get_or_generate_evaluation(meeting_id: str) -> Dict[str, Any]:
         return existing
 
     return generate_evaluation_from_meeting(meeting_id)
+
+
+def trigger_auto_evaluation_if_needed(meeting_id: str, force: bool = False) -> Dict[str, Any]:
+    """
+    Auto-trigger evaluation generation after call finalization artifacts are persisted.
+
+    Idempotent by default: skips generation when evaluation_data already exists,
+    unless force=True.
+    """
+    meeting = fetch_meeting_details(meeting_id)
+    if not meeting:
+        logger.warning("[auto-eval] skip: meeting not found meeting_id=%s", meeting_id)
+        return {"status": "skip", "reason": "meeting_not_found"}
+
+    recording_url = meeting.get("recording_url")
+    if not recording_url:
+        logger.info("[auto-eval] skip: recording_url missing meeting_id=%s", meeting_id)
+        return {"status": "skip", "reason": "recording_missing"}
+
+    existing: Optional[Dict[str, Any]] = meeting.get("evaluation_data")
+    if not force and existing and isinstance(existing, dict):
+        logger.info("[auto-eval] skip: evaluation already exists meeting_id=%s", meeting_id)
+        return {"status": "skip", "reason": "already_exists"}
+
+    logger.info("[auto-eval] start meeting_id=%s force=%s", meeting_id, force)
+    result = generate_evaluation_from_meeting(meeting_id)
+
+    if isinstance(result, dict) and result.get("status") == "fail":
+        logger.error(
+            "[auto-eval] failed meeting_id=%s status_code=%s message=%s",
+            meeting_id,
+            result.get("status_code"),
+            result.get("message"),
+        )
+        return result
+
+    logger.info("[auto-eval] success meeting_id=%s", meeting_id)
+    return result
