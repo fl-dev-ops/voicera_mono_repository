@@ -1,4 +1,5 @@
 import { SERVER_API_URL } from "@/lib/api-config"
+import { InterviewReport, type AnalysisData, type CEFRLevel } from "./_components/interview-report"
 
 type EvaluationResponse = {
   scores: Record<string, number>
@@ -30,6 +31,36 @@ async function getReport(meetingId: string): Promise<EvaluationResponse> {
   return res.json()
 }
 
+function normalizeCEFRLevel(level?: string): CEFRLevel {
+  const upper = (level || "").toUpperCase()
+  const direct = ["A1", "A2", "B1", "B2", "C1", "C2"] as const
+
+  if (direct.includes(upper as CEFRLevel)) {
+    return upper as CEFRLevel
+  }
+
+  if (upper.includes("A1")) return "A1"
+  if (upper.includes("A2")) return "A2"
+  if (upper.includes("B1")) return "B1"
+  if (upper.includes("B2")) return "B2"
+  if (upper.includes("C1")) return "C1"
+  if (upper.includes("C2")) return "C2"
+
+  return "A1"
+}
+
+function toAnalysisData(report: EvaluationResponse): AnalysisData {
+  return {
+    duration_seconds: report.stats?.talkTimeSeconds ?? 0,
+    word_count: report.stats?.words ?? 0,
+    sentence_count: report.stats?.sentences ?? 0,
+    confidence_score: report.confidenceScore ?? 0,
+    cefr_level: normalizeCEFRLevel(report.cefrLevel),
+    feedback_positive: (report.whatDidGood || []).join(" "),
+    feedback_negative: (report.whatToImprove || []).join(" "),
+  }
+}
+
 export default async function ReportPage({
   params,
 }: {
@@ -37,51 +68,11 @@ export default async function ReportPage({
 }) {
   const { meetingId } = await params
   const report = await getReport(meetingId)
+  const analysisData = toAnalysisData(report)
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-2xl font-semibold">Evaluation Report</h1>
-      <p className="mt-2 text-sm text-gray-600">Session: {report.sessionId || meetingId}</p>
-
-      <section className="mt-6 rounded-xl border p-4">
-        <p><strong>Overall Score:</strong> {report.overallScore}</p>
-        <p><strong>Performance Level:</strong> {report.performanceLevel}</p>
-        <p><strong>CEFR:</strong> {report.cefrLevel}</p>
-        <p><strong>Confidence Score:</strong> {report.confidenceScore}</p>
-      </section>
-
-      <section className="mt-6 rounded-xl border p-4">
-        <h2 className="font-medium">Scores</h2>
-        <pre className="mt-2 overflow-auto text-sm">{JSON.stringify(report.scores, null, 2)}</pre>
-      </section>
-
-      <section className="mt-6 rounded-xl border p-4">
-        <h2 className="font-medium">Stats</h2>
-        <pre className="mt-2 overflow-auto text-sm">{JSON.stringify(report.stats, null, 2)}</pre>
-      </section>
-
-      <section className="mt-6 rounded-xl border p-4">
-        <h2 className="font-medium">What You Did Good</h2>
-        <ul className="mt-2 list-disc pl-5">
-          {(report.whatDidGood || []).map((item, idx) => (
-            <li key={idx}>{item}</li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="mt-6 rounded-xl border p-4">
-        <h2 className="font-medium">What To Improve</h2>
-        <ul className="mt-2 list-disc pl-5">
-          {(report.whatToImprove || []).map((item, idx) => (
-            <li key={idx}>{item}</li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="mt-6 rounded-xl border p-4">
-        <h2 className="font-medium">Raw JSON</h2>
-        <pre className="mt-2 overflow-auto text-xs">{JSON.stringify(report, null, 2)}</pre>
-      </section>
+    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+      <InterviewReport analysisData={analysisData} />
     </main>
   )
 }
