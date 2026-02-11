@@ -47,6 +47,10 @@ class Settings:
     VOBIZ_ACCOUNT_ID: str = os.getenv("VOBIZ_ACCOUNT_ID", "")
     VOBIZ_AUTH_ID: str = os.getenv("VOBIZ_AUTH_ID", "")
     VOBIZ_AUTH_TOKEN: str = os.getenv("VOBIZ_AUTH_TOKEN", "")
+
+    # Evaluation (forever-learning parity)
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
     
     @property
     def mongodb_uri(self) -> str:

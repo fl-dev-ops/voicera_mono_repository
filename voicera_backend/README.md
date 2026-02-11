@@ -162,4 +162,6 @@ You can configure the application using environment variables:
 - `MONGODB_PASSWORD` - MongoDB password (default: admin123)
 - `MONGODB_DATABASE` - Database name (default: voicera)
 - `DEBUG` - Enable debug mode (default: False)
+- `GEMINI_API_KEY` - Google Gemini API key (required for audio evaluation)
+- `GEMINI_MODEL` - Gemini model name (default: gemini-flash-lite-latest)
 
