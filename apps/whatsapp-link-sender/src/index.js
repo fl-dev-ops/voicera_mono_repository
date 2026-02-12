@@ -3,6 +3,7 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal');
 const { z } = require('zod');
+const fs = require('fs/promises');
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -21,6 +22,8 @@ app.use(express.json());
 let sock;
 let latestQr = null;
 let connectionState = 'disconnected';
+let isConnecting = false;
+let reconnectTimer = null;
 
 const payloadSchema = z.object({
   to: z.string().trim().min(8),
@@ -40,7 +43,7 @@ function normalizePhone(to) {
 
 function buildMessage({ name, reportUrl }) {
   const intro = name ? `Hi ${name},` : 'Hi,';
-  return `${intro} your report is ready: ${reportUrl}`;
+  return `${intro} your Session Analysis is ready ✅\n${reportUrl}`;
 }
 
 async function sendWithRetry(jid, text, retries = 2) {
@@ -58,53 +61,92 @@ async function sendWithRetry(jid, text, retries = 2) {
   }
 }
 
+async function clearAuthState() {
+  try {
+    await fs.rm(AUTH_STATE_DIR, { recursive: true, force: true });
+    await fs.mkdir(AUTH_STATE_DIR, { recursive: true });
+    logger.warn({ authDir: AUTH_STATE_DIR }, 'auth state cleared');
+  } catch (error) {
+    logger.error({ err: error.message, authDir: AUTH_STATE_DIR }, 'failed to clear auth state');
+  }
+}
+
+function scheduleReconnect(delayMs = 1200) {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectWhatsApp().catch((error) => {
+      logger.error({ err: error.message }, 'reconnect attempt failed');
+    });
+  }, delayMs);
+}
+
 async function connectWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_STATE_DIR);
+  if (isConnecting) return;
+  isConnecting = true;
 
-  sock = makeWASocket({
-    auth: state,
-    printQRInTerminal: false,
-    logger: pino({ level: 'silent' }),
-    browser: ['Voicera WhatsApp Link Sender', 'Chrome', '1.0.0'],
-  });
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_STATE_DIR);
 
-  sock.ev.on('creds.update', saveCreds);
+    sock = makeWASocket({
+      auth: state,
+      printQRInTerminal: false,
+      logger: pino({ level: 'silent' }),
+      browser: ['Voicera WhatsApp Link Sender', 'Chrome', '1.0.0'],
+    });
 
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
+    sock.ev.on('creds.update', saveCreds);
 
-    if (qr) {
-      latestQr = qr;
-      logger.info('New WhatsApp QR generated. Scan from your WhatsApp mobile app.');
-      qrcodeTerminal.generate(qr, { small: true });
-    }
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+      const reasonCode = lastDisconnect?.error?.output?.statusCode || 0;
 
-    if (connection) {
-      connectionState = connection;
-      logger.info({ connection }, 'whatsapp connection update');
-    }
-
-    if (connection === 'close') {
-      const shouldReconnect =
-        (lastDisconnect?.error?.output?.statusCode || 0) !== DisconnectReason.loggedOut;
-
-      logger.warn(
-        {
-          shouldReconnect,
-          reasonCode: lastDisconnect?.error?.output?.statusCode,
-        },
-        'whatsapp connection closed',
-      );
-
-      if (shouldReconnect) {
-        await connectWhatsApp();
+      if (qr) {
+        latestQr = qr;
+        connectionState = 'qr_ready';
+        logger.info('New WhatsApp QR generated. Scan from your WhatsApp mobile app.');
+        qrcodeTerminal.generate(qr, { small: true });
       }
-    }
 
-    if (connection === 'open') {
-      latestQr = null;
-    }
-  });
+      if (connection) {
+        connectionState = connection;
+        logger.info({ connection }, 'whatsapp connection update');
+      }
+
+      if (connection === 'close') {
+        const isLoggedOut = reasonCode === DisconnectReason.loggedOut;
+        const isConflict405 = reasonCode === 405;
+        const shouldReconnect = !isLoggedOut && !isConflict405;
+
+        logger.warn(
+          {
+            shouldReconnect,
+            reasonCode,
+          },
+          'whatsapp connection closed',
+        );
+
+        if (isConflict405) {
+          latestQr = null;
+          connectionState = 'relink_required';
+          await clearAuthState();
+          logger.warn('reasonCode=405 detected; relink required. Open /qr to generate a fresh code.');
+          return;
+        }
+
+        if (shouldReconnect) {
+          scheduleReconnect();
+        }
+      }
+
+      if (connection === 'open') {
+        latestQr = null;
+        connectionState = 'open';
+      }
+    });
+  } finally {
+    isConnecting = false;
+  }
 }
 
 app.get('/health', (_req, res) => {
@@ -112,9 +154,15 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/qr', async (_req, res) => {
+  if (!latestQr && connectionState !== 'open') {
+    await connectWhatsApp();
+    await delay(800);
+  }
+
   if (!latestQr) {
     return res.status(404).json({
       message: 'QR is not currently available. The session may already be connected.',
+      connectionState,
     });
   }
 
