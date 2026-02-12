@@ -1,16 +1,16 @@
-const express = require('express');
-const pino = require('pino');
-const QRCode = require('qrcode');
-const qrcodeTerminal = require('qrcode-terminal');
-const { z } = require('zod');
-const fs = require('fs/promises');
-const path = require('path');
-const {
-  default: makeWASocket,
+import express from 'express';
+import pino from 'pino';
+import QRCode from 'qrcode';
+import qrcodeTerminal from 'qrcode-terminal';
+import { z } from 'zod';
+import fs from 'fs/promises';
+import path from 'path';
+import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   delay,
-} = require('@whiskeysockets/baileys');
+  Browsers,
+} from '@whiskeysockets/baileys';
 
 const PORT = Number(process.env.PORT || 8085);
 const AUTH_STATE_DIR = process.env.AUTH_STATE_DIR || './auth_state';
@@ -27,6 +27,7 @@ let isConnecting = false;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
 let connectGeneration = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
 
 const payloadSchema = z.object({
   to: z.string().trim().min(8),
@@ -58,8 +59,10 @@ function computeBackoffMs(attempt) {
 }
 
 function isRelinkRequiredStatus(code) {
+  // Note: 405 is NOT a Baileys DisconnectReason — it's a WhatsApp server
+  // rejection (CB:failure reason=405) that should be retried with backoff,
+  // not treated as a relink (which clears auth and loops forever).
   return (
-    code === 405 ||
     code === DisconnectReason.loggedOut ||
     code === DisconnectReason.connectionReplaced ||
     code === DisconnectReason.badSession ||
@@ -133,7 +136,7 @@ async function connectWhatsApp(reason = 'init') {
       auth: state,
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
-      browser: ['Voicera WhatsApp Link Sender', 'Chrome', '1.0.0'],
+      browser: Browsers.macOS('Chrome'),
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -183,10 +186,22 @@ async function connectWhatsApp(reason = 'init') {
           latestQr = null;
           connectionState = 'relink_required';
           await clearAuthStateContents();
+          reconnectAttempts += 1;
+
+          if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+            logger.error(
+              { reconnectAttempts, reasonCode },
+              'max reconnect attempts reached after relink. Stopping. Hit GET /qr to try again.',
+            );
+            reconnectAttempts = 0;
+            return;
+          }
+
           logger.warn(
-            { reasonCode },
-            'relink required; auth state cleared. Open /qr to generate a fresh pairing code.',
+            { reasonCode, reconnectAttempts },
+            'relink required; auth state cleared. Scheduling fresh connection for new QR.',
           );
+          scheduleReconnect(1500);
           return;
         }
 
@@ -198,6 +213,17 @@ async function connectWhatsApp(reason = 'init') {
 
         if (shouldReconnect) {
           reconnectAttempts += 1;
+
+          if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+            logger.error(
+              { reconnectAttempts, reasonCode },
+              'max reconnect attempts reached. Stopping. Hit GET /qr to try again.',
+            );
+            connectionState = 'disconnected';
+            reconnectAttempts = 0;
+            return;
+          }
+
           scheduleReconnect(computeBackoffMs(reconnectAttempts));
         }
       }
@@ -212,14 +238,32 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/qr', async (_req, res) => {
-  if (!latestQr && connectionState !== 'open') {
+  if (connectionState === 'open') {
+    return res.json({ connectionState, message: 'Already connected. No QR needed.' });
+  }
+
+  // Trigger a fresh connection if not already connecting/reconnecting
+  if (!latestQr && !isConnecting && !reconnectTimer) {
     await connectWhatsApp('qr-request');
-    await delay(1200);
+  }
+
+  // Poll for QR availability (check every 300ms, up to 10s)
+  const pollIntervalMs = 300;
+  const maxWaitMs = 10000;
+  let waited = 0;
+
+  while (!latestQr && connectionState !== 'open' && waited < maxWaitMs) {
+    await delay(pollIntervalMs);
+    waited += pollIntervalMs;
+  }
+
+  if (connectionState === 'open') {
+    return res.json({ connectionState, message: 'Already connected. No QR needed.' });
   }
 
   if (!latestQr) {
     return res.status(404).json({
-      message: 'QR is not currently available. The session may already be connected.',
+      message: 'QR not available yet. A fresh connection is being established — try again in a few seconds.',
       connectionState,
     });
   }
