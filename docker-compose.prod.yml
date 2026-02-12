@@ -153,6 +153,15 @@ services:
       - voicera_whatsapp_auth_data:/app/auth_state
     networks:
       - web
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.voicera-whatsapp.rule=Host(`whatsapp.${DOMAIN}`)"
+        - "traefik.http.routers.voicera-whatsapp.entrypoints=websecure"
+        - "traefik.http.routers.voicera-whatsapp.tls=true"
+        - "traefik.http.routers.voicera-whatsapp.tls.certresolver=suryaumapathyresolver"
+        - "traefik.http.routers.voicera-whatsapp.service=voicera-whatsapp"
+        - "traefik.http.services.voicera-whatsapp.loadbalancer.server.port=8085"
 
 networks:
   web:
