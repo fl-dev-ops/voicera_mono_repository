@@ -164,4 +164,7 @@ You can configure the application using environment variables:
 - `DEBUG` - Enable debug mode (default: False)
 - `GEMINI_API_KEY` - Google Gemini API key (required for audio evaluation)
 - `GEMINI_MODEL` - Gemini model name (default: gemini-flash-lite-latest)
+- `WHATSAPP_SEND_ENABLED` - Enable auto WhatsApp report-link sending (default: false)
+- `WHATSAPP_SENDER_URL` - WhatsApp sender service base URL (default: http://whatsapp_sender:8085)
+- `REPORT_BASE_URL` - Public report URL base; backend appends `/{meeting_id}`
 

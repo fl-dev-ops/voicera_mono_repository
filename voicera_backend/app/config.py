@@ -51,6 +51,11 @@ class Settings:
     # Evaluation (forever-learning parity)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
+
+    # WhatsApp report-link sender
+    WHATSAPP_SENDER_URL: str = os.getenv("WHATSAPP_SENDER_URL", "http://whatsapp_sender:8085")
+    WHATSAPP_SEND_ENABLED: bool = os.getenv("WHATSAPP_SEND_ENABLED", "false").lower() == "true"
+    REPORT_BASE_URL: str = os.getenv("REPORT_BASE_URL", "")
     
     @property
     def mongodb_uri(self) -> str:

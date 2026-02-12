@@ -71,6 +71,9 @@ services:
       - VOBIZ_AUTH_TOKEN=${VOBIZ_AUTH_TOKEN}
       - FRONTEND_URL=https://${DOMAIN}
       - DEBUG=False
+      - WHATSAPP_SEND_ENABLED=${WHATSAPP_SEND_ENABLED:-false}
+      - WHATSAPP_SENDER_URL=${WHATSAPP_SENDER_URL:-http://whatsapp_sender:8085}
+      - REPORT_BASE_URL=${REPORT_BASE_URL:-https://${DOMAIN}/report}
     networks:
       - web
     depends_on:
