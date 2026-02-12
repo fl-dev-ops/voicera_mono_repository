@@ -4,6 +4,7 @@ const QRCode = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal');
 const { z } = require('zod');
 const fs = require('fs/promises');
+const path = require('path');
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -24,6 +25,8 @@ let latestQr = null;
 let connectionState = 'disconnected';
 let isConnecting = false;
 let reconnectTimer = null;
+let reconnectAttempts = 0;
+let connectGeneration = 0;
 
 const payloadSchema = z.object({
   to: z.string().trim().min(8),
@@ -33,10 +36,7 @@ const payloadSchema = z.object({
 
 function normalizePhone(to) {
   const cleaned = to.trim();
-  if (cleaned.endsWith('@s.whatsapp.net')) {
-    return cleaned;
-  }
-
+  if (cleaned.endsWith('@s.whatsapp.net')) return cleaned;
   const digits = cleaned.replace(/[^\d]/g, '');
   return `${digits}@s.whatsapp.net`;
 }
@@ -44,6 +44,27 @@ function normalizePhone(to) {
 function buildMessage({ name, reportUrl }) {
   const intro = name ? `Hi ${name},` : 'Hi,';
   return `${intro} your Session Analysis is ready ✅\n${reportUrl}`;
+}
+
+function getStatusCode(error) {
+  return error?.output?.statusCode || error?.data?.statusCode || 0;
+}
+
+function computeBackoffMs(attempt) {
+  const base = 1200;
+  const max = 30000;
+  const value = base * 2 ** Math.max(0, attempt - 1);
+  return Math.min(value, max);
+}
+
+function isRelinkRequiredStatus(code) {
+  return (
+    code === 405 ||
+    code === DisconnectReason.loggedOut ||
+    code === DisconnectReason.connectionReplaced ||
+    code === DisconnectReason.badSession ||
+    code === DisconnectReason.multideviceMismatch
+  );
 }
 
 async function sendWithRetry(jid, text, retries = 2) {
@@ -61,13 +82,16 @@ async function sendWithRetry(jid, text, retries = 2) {
   }
 }
 
-async function clearAuthState() {
+async function clearAuthStateContents() {
   try {
-    await fs.rm(AUTH_STATE_DIR, { recursive: true, force: true });
     await fs.mkdir(AUTH_STATE_DIR, { recursive: true });
-    logger.warn({ authDir: AUTH_STATE_DIR }, 'auth state cleared');
+    const entries = await fs.readdir(AUTH_STATE_DIR, { withFileTypes: true });
+    await Promise.all(
+      entries.map((entry) => fs.rm(path.join(AUTH_STATE_DIR, entry.name), { recursive: true, force: true })),
+    );
+    logger.warn({ authDir: AUTH_STATE_DIR, removedEntries: entries.length }, 'auth state contents cleared');
   } catch (error) {
-    logger.error({ err: error.message, authDir: AUTH_STATE_DIR }, 'failed to clear auth state');
+    logger.error({ err: error.message, authDir: AUTH_STATE_DIR }, 'failed to clear auth state contents');
   }
 }
 
@@ -75,17 +99,34 @@ function scheduleReconnect(delayMs = 1200) {
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connectWhatsApp().catch((error) => {
+    connectWhatsApp('reconnect').catch((error) => {
       logger.error({ err: error.message }, 'reconnect attempt failed');
+      scheduleReconnect(computeBackoffMs(reconnectAttempts + 1));
     });
   }, delayMs);
 }
 
-async function connectWhatsApp() {
-  if (isConnecting) return;
-  isConnecting = true;
+async function closeCurrentSocket() {
+  try {
+    if (sock?.ev && typeof sock.ev.removeAllListeners === 'function') {
+      sock.ev.removeAllListeners('connection.update');
+      sock.ev.removeAllListeners('creds.update');
+    }
+  } catch {}
 
   try {
+    sock?.ws?.close?.();
+  } catch {}
+}
+
+async function connectWhatsApp(reason = 'init') {
+  if (isConnecting) return;
+  isConnecting = true;
+  const generation = ++connectGeneration;
+
+  try {
+    await closeCurrentSocket();
+
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_STATE_DIR);
 
     sock = makeWASocket({
@@ -98,13 +139,15 @@ async function connectWhatsApp() {
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
+      if (generation !== connectGeneration) return;
+
       const { connection, lastDisconnect, qr } = update;
-      const reasonCode = lastDisconnect?.error?.output?.statusCode || 0;
+      const reasonCode = getStatusCode(lastDisconnect?.error);
 
       if (qr) {
         latestQr = qr;
         connectionState = 'qr_ready';
-        logger.info('New WhatsApp QR generated. Scan from your WhatsApp mobile app.');
+        logger.info({ reason }, 'New WhatsApp QR generated. Scan from your WhatsApp mobile app.');
         qrcodeTerminal.generate(qr, { small: true });
       }
 
@@ -113,35 +156,50 @@ async function connectWhatsApp() {
         logger.info({ connection }, 'whatsapp connection update');
       }
 
+      if (connection === 'open') {
+        latestQr = null;
+        connectionState = 'open';
+        reconnectAttempts = 0;
+        logger.info('whatsapp connected');
+        return;
+      }
+
       if (connection === 'close') {
-        const isLoggedOut = reasonCode === DisconnectReason.loggedOut;
-        const isConflict405 = reasonCode === 405;
-        const shouldReconnect = !isLoggedOut && !isConflict405;
+        const relinkRequired = isRelinkRequiredStatus(reasonCode);
+        const restartRequired = reasonCode === DisconnectReason.restartRequired;
+        const shouldReconnect = !relinkRequired && !restartRequired;
 
         logger.warn(
           {
             shouldReconnect,
             reasonCode,
+            relinkRequired,
+            restartRequired,
           },
           'whatsapp connection closed',
         );
 
-        if (isConflict405) {
+        if (relinkRequired) {
           latestQr = null;
           connectionState = 'relink_required';
-          await clearAuthState();
-          logger.warn('reasonCode=405 detected; relink required. Open /qr to generate a fresh code.');
+          await clearAuthStateContents();
+          logger.warn(
+            { reasonCode },
+            'relink required; auth state cleared. Open /qr to generate a fresh pairing code.',
+          );
+          return;
+        }
+
+        if (restartRequired) {
+          reconnectAttempts += 1;
+          scheduleReconnect(500);
           return;
         }
 
         if (shouldReconnect) {
-          scheduleReconnect();
+          reconnectAttempts += 1;
+          scheduleReconnect(computeBackoffMs(reconnectAttempts));
         }
-      }
-
-      if (connection === 'open') {
-        latestQr = null;
-        connectionState = 'open';
       }
     });
   } finally {
@@ -150,13 +208,13 @@ async function connectWhatsApp() {
 }
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', connectionState });
+  res.json({ status: 'ok', connectionState, reconnectAttempts });
 });
 
 app.get('/qr', async (_req, res) => {
   if (!latestQr && connectionState !== 'open') {
-    await connectWhatsApp();
-    await delay(800);
+    await connectWhatsApp('qr-request');
+    await delay(1200);
   }
 
   if (!latestQr) {
@@ -221,5 +279,5 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, async () => {
   logger.info({ port: PORT }, 'whatsapp-link-sender listening');
-  await connectWhatsApp();
+  await connectWhatsApp('startup');
 });
