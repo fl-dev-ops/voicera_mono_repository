@@ -34,6 +34,12 @@ docker build -t $REGISTRY/$REPO_OWNER/voicera-voice:$TAG ./voice_2_voice_server
 echo "🚀 Pushing voice server..."
 docker push $REGISTRY/$REPO_OWNER/voicera-voice:$TAG
 
+# Build and push WhatsApp link sender
+echo "📦 Building WhatsApp link sender..."
+docker build -t $REGISTRY/$REPO_OWNER/voicera-whatsapp:$TAG ./apps/whatsapp-link-sender
+echo "🚀 Pushing WhatsApp link sender..."
+docker push $REGISTRY/$REPO_OWNER/voicera-whatsapp:$TAG
+
 echo ""
 echo "✅ All images pushed!"
 echo ""
@@ -41,3 +47,4 @@ echo "Images:"
 echo "  - $REGISTRY/$REPO_OWNER/voicera-backend:$TAG"
 echo "  - $REGISTRY/$REPO_OWNER/voicera-frontend:$TAG"
 echo "  - $REGISTRY/$REPO_OWNER/voicera-voice:$TAG"
+echo "  - $REGISTRY/$REPO_OWNER/voicera-whatsapp:$TAG"

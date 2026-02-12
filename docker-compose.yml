@@ -136,6 +136,23 @@ services:
       - backend
       - minio
 
+  whatsapp_sender:
+    build:
+      context: ./apps/whatsapp-link-sender
+      dockerfile: Dockerfile
+    container_name: voicera_whatsapp_sender
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      - PORT=8085
+      - AUTH_STATE_DIR=/app/auth_state
+      - LOG_LEVEL=info
+    volumes:
+      - ./apps/whatsapp-link-sender/auth_state:/app/auth_state
+    networks:
+      - voicera_network
+
   nginx:
     image: nginx:alpine
     container_name: voicera_nginx

@@ -142,6 +142,18 @@ services:
         - "traefik.http.routers.voicera-voice.service=voicera-voice"
         - "traefik.http.services.voicera-voice.loadbalancer.server.port=7860"
 
+  whatsapp_sender:
+    image: devopsfl/voicera-whatsapp:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - PORT=8085
+      - AUTH_STATE_DIR=/app/auth_state
+      - LOG_LEVEL=${WHATSAPP_LOG_LEVEL:-info}
+    volumes:
+      - voicera_whatsapp_auth_data:/app/auth_state
+    networks:
+      - web
+
 networks:
   web:
     external: true
@@ -151,4 +163,6 @@ volumes:
   voicera_minio_data:
     driver: local
   voicera_qdrant_data:
+    driver: local
+  voicera_whatsapp_auth_data:
     driver: local

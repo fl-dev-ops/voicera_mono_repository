@@ -38,6 +38,25 @@ npm start
 
 Server starts on `PORT` (default `8085`).
 
+## Docker
+
+Build image:
+
+```bash
+docker build -t devopsfl/voicera-whatsapp:whatsapp .
+```
+
+Run container:
+
+```bash
+docker run -d --name voicera-whatsapp \
+  -p 8085:8085 \
+  -e PORT=8085 \
+  -e AUTH_STATE_DIR=/app/auth_state \
+  -v voicera_whatsapp_auth_data:/app/auth_state \
+  devopsfl/voicera-whatsapp:whatsapp
+```
+
 ## Connect WhatsApp (QR flow)
 
 When the server starts, a QR is generated and printed in terminal logs.
