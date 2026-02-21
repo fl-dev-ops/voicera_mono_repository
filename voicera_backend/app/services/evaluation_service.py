@@ -1,10 +1,11 @@
 """
 Evaluation service using the exact forever-learning evaluator stack:
-- Provider/SDK: Google Gemini via google-generativeai
+- Provider/SDK: Google Gemini via google-genai (new SDK)
 - Model: gemini-flash-lite-latest
 - Input path: audio-first evaluation (no transcript heuristics)
 - Output contract: forever-learning mock interview JSON format
 """
+
 from __future__ import annotations
 
 import base64
@@ -14,7 +15,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from app.config import settings
 from app.database import get_database
@@ -152,11 +154,7 @@ def _evaluate_audio_with_gemini(recording_url: str) -> Dict[str, Any]:
     if not settings.GEMINI_API_KEY:
         raise ValueError("Gemini API key not configured")
 
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel(
-        model_name=settings.GEMINI_MODEL,
-        generation_config={"temperature": 0},
-    )
+    client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
     audio_bytes = _fetch_recording_bytes(recording_url)
     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
@@ -164,29 +162,26 @@ def _evaluate_audio_with_gemini(recording_url: str) -> Dict[str, Any]:
 
     prompt = _build_mock_interview_prompt()
 
-    result = model.generate_content(
-        [
-            {"text": prompt},
-            {
-                "inline_data": {
-                    "mime_type": mime_type,
-                    "data": audio_b64,
-                }
-            },
-        ]
+    result = client.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text=prompt),
+                    types.Part.from_bytes(
+                        data=base64.b64decode(audio_b64), mime_type=mime_type
+                    ),
+                ],
+            ),
+        ],
+        config=types.GenerateContentConfig(
+            temperature=0,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        ),
     )
 
     text = (result.text or "").strip()
-    if not text and getattr(result, "candidates", None):
-        # Defensive fallback for SDK response shape variations
-        try:
-            parts = result.candidates[0].content.parts
-            text = "\n".join(
-                getattr(p, "text", "") for p in parts if getattr(p, "text", "")
-            ).strip()
-        except Exception:
-            text = ""
-
     if not text:
         raise ValueError("Empty response from AI model")
 
@@ -248,7 +243,9 @@ def get_or_generate_evaluation(meeting_id: str) -> Dict[str, Any]:
     return generate_evaluation_from_meeting(meeting_id)
 
 
-def trigger_auto_evaluation_if_needed(meeting_id: str, force: bool = False) -> Dict[str, Any]:
+def trigger_auto_evaluation_if_needed(
+    meeting_id: str, force: bool = False
+) -> Dict[str, Any]:
     """
     Auto-trigger evaluation generation after call finalization artifacts are persisted.
 
@@ -267,7 +264,9 @@ def trigger_auto_evaluation_if_needed(meeting_id: str, force: bool = False) -> D
 
     existing: Optional[Dict[str, Any]] = meeting.get("evaluation_data")
     if not force and existing and isinstance(existing, dict):
-        logger.info("[auto-eval] skip: evaluation already exists meeting_id=%s", meeting_id)
+        logger.info(
+            "[auto-eval] skip: evaluation already exists meeting_id=%s", meeting_id
+        )
         return {"status": "skip", "reason": "already_exists"}
 
     logger.info("[auto-eval] start meeting_id=%s force=%s", meeting_id, force)

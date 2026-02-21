@@ -1,41 +1,45 @@
-"""Persistent memory service (MongoDB + Qdrant).
+"""Fact-based persistent memory service (Qdrant + Gemini).
 
-Design goals:
-- Source of truth: MongoDB (raw ingests + per-user summary/profile)
-- Retrieval: Qdrant vector search filtered by user phone number
-- API surface: ingest + search
-
-This follows the same pattern as existing voice server → backend API flow.
+Design:
+- Two Qdrant collections: voicera_facts (per-fact, deduped) and voicera_summaries (per-call)
+- Fact extraction: Gemini LLM extracts atomic facts from each user turn
+- Fact dedup: before storing, check if a semantically matching fact already exists
+- Summary generation: Gemini LLM summarizes full call transcript post-call
+- Retrieval: vector search for per-turn, filtered scroll for bootstrap
 """
 
 from __future__ import annotations
 
 import hashlib
-import time
-from datetime import datetime
+import json
+import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastembed import TextEmbedding
-from loguru import logger
-from pymongo.database import Database
+from google import genai
+from google.genai import types
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
 from app.config import settings
-from app.database import get_database
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Phone normalization (India-first)
+# ---------------------------------------------------------------------------
 
 
 def normalize_phone_e164(phone: str, *, default_cc: str = "91") -> str:
-    """Normalize phone numbers to a simple E.164-like format.
+    """Normalize phone numbers to E.164-like format.
 
-    Assumptions (current Voicera usage): India-first.
     Examples:
-      - "08071387434" -> "+918071387434"
-      - "8071387434"  -> "+918071387434"
-      - "+918071..."  -> "+918071..."
-      - "918071..."   -> "+918071..."
-
-    This avoids creating separate memory buckets for the same student.
+      "08071387434" -> "+918071387434"
+      "8071387434"  -> "+918071387434"
+      "+918071..."  -> "+918071..."
+      "918071..."   -> "+918071..."
     """
     if not phone:
         return ""
@@ -44,7 +48,6 @@ def normalize_phone_e164(phone: str, *, default_cc: str = "91") -> str:
     if not p:
         return ""
 
-    # Keep leading '+' if present; drop other non-digits
     if p.startswith("+"):
         digits = "+" + "".join(ch for ch in p[1:] if ch.isdigit())
     else:
@@ -53,218 +56,293 @@ def normalize_phone_e164(phone: str, *, default_cc: str = "91") -> str:
     if digits.startswith("+"):
         return digits
 
-    # Local formats
     if digits.startswith("0") and len(digits) >= 11:
         return f"+{default_cc}{digits[1:]}"
 
-    # If number already contains country code without '+'
     if digits.startswith(default_cc) and len(digits) > len(default_cc) + 6:
         return f"+{digits}"
 
-    # 10-digit national number
     if len(digits) == 10:
         return f"+{default_cc}{digits}"
 
-    # Fallback: just prefix '+'
     return f"+{digits}"
 
 
 def _now_utc_iso() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
-def _stable_point_id(user_phone: str, text: str, source: Optional[Dict[str, Any]]) -> str:
-    """Create a deterministic id to avoid duplicate inserts."""
+def _stable_id(user_phone: str, text: str) -> str:
+    """Deterministic point ID from phone + text to avoid duplicates."""
     h = hashlib.sha256()
     h.update(user_phone.encode("utf-8"))
     h.update(b"\n")
     h.update(text.encode("utf-8"))
-    if source:
-        h.update(b"\n")
-        h.update(str(sorted(source.items())).encode("utf-8"))
     return h.hexdigest()
 
 
-def _split_on_boundaries(text: str) -> List[str]:
-    # Prefer splitting on newlines (transcripts are line-based), then sentence-ish.
-    parts = [p.strip() for p in text.split("\n") if p.strip()]
-    return parts if parts else [text.strip()]
+# ---------------------------------------------------------------------------
+# Gemini LLM helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_gemini_client() -> genai.Client:
+    api_key = settings.GEMINI_API_KEY
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY not configured")
+    return genai.Client(api_key=api_key)
+
+
+FACT_EXTRACTION_PROMPT = """You are a fact extractor. Given an exchange between an agent and a user, extract all factual information about the user.
+
+Rules:
+- Extract ONLY facts about the user (name, location, job interest, skills, education, experience, preferences, etc.)
+- Each fact must be a short, self-contained statement (e.g. "Name is Surya", "Lives in Chennai", "Interested in data entry")
+- Do NOT extract opinions, greetings, or conversational filler
+- Do NOT extract facts about the agent
+- If there are no facts to extract, return an empty array
+- Return ONLY a valid JSON array of strings, nothing else
+
+Agent said: "{agent_message}"
+User responded: "{user_response}"
+
+Extract facts as JSON array:"""
+
+
+SUMMARY_PROMPT_DEFAULT = """Summarize this phone conversation in 2-3 concise sentences. Focus on:
+- Who the caller is (name, location if mentioned)
+- What they were calling about / what was discussed
+- Key outcome or next steps
+
+Keep it brief and factual. This summary will be used to give context in future calls with the same person.
+
+Conversation transcript:
+{transcript}
+
+Summary:"""
+
+
+def _extract_facts_via_llm(agent_message: str, user_response: str) -> List[str]:
+    """Call Gemini to extract facts from a single exchange. Returns list of fact strings."""
+    try:
+        client = _get_gemini_client()
+        prompt = FACT_EXTRACTION_PROMPT.format(
+            agent_message=agent_message,
+            user_response=user_response,
+        )
+
+        result = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=prompt)],
+                ),
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                response_mime_type="application/json",
+            ),
+        )
+
+        text = (result.text or "").strip()
+        if not text:
+            return []
+
+        facts = json.loads(text)
+        if isinstance(facts, list):
+            return [str(f).strip() for f in facts if f and str(f).strip()]
+        return []
+
+    except Exception as e:
+        logger.warning(f"Fact extraction LLM call failed: {e}")
+        return []
+
+
+def _generate_summary_via_llm(
+    transcript: str, summary_prompt: Optional[str] = None
+) -> str:
+    """Call Gemini to generate a call summary from transcript."""
+    try:
+        client = _get_gemini_client()
+        prompt_template = summary_prompt or SUMMARY_PROMPT_DEFAULT
+        prompt = prompt_template.format(transcript=transcript)
+
+        result = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=prompt)],
+                ),
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.3,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+            ),
+        )
+
+        return (result.text or "").strip()
+
+    except Exception as e:
+        logger.warning(f"Summary generation LLM call failed: {e}")
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Memory Service
+# ---------------------------------------------------------------------------
 
 
 class MemoryService:
-    def __init__(self, db: Optional[Database] = None):
-        self.db = db or get_database()
+    """Fact-based persistent memory backed by Qdrant + Gemini."""
+
+    # Fixed collection names — internal implementation detail, not configurable
+    FACTS_COLLECTION = "voicera_facts"
+    SUMMARIES_COLLECTION = "voicera_summaries"
+
+    # Similarity threshold for dedup — facts above this score are considered duplicates
+    DEDUP_THRESHOLD = 0.92
+
+    def __init__(self):
         self._embedder = TextEmbedding(model_name=settings.MEMORY_EMBED_MODEL)
         self._qdrant = QdrantClient(url=settings.QDRANT_URL)
-        self._collection = settings.QDRANT_COLLECTION
-        self._ensure_indexes()
-        self._ensure_qdrant_collection()
+        self._facts_collection = self.FACTS_COLLECTION
+        self._summaries_collection = self.SUMMARIES_COLLECTION
+        self._ensure_collections()
 
-    # ------------------------- MongoDB -------------------------
-    def _ensure_indexes(self):
-        try:
-            self.db.user_memory_events.create_index([("user_phone", 1), ("created_at", -1)])
-            self.db.user_memory_profile.create_index("user_phone", unique=True)
-        except Exception as e:
-            logger.warning(f"Failed to ensure MongoDB indexes: {e}")
+    # -------------------- Setup --------------------
 
-    # ------------------------- Qdrant -------------------------
-    def _ensure_qdrant_collection(self):
+    def _ensure_collections(self):
+        """Create Qdrant collections if they don't exist."""
         try:
             existing = {c.name for c in self._qdrant.get_collections().collections}
-            if self._collection in existing:
-                return
+            dim = len(next(self._embedder.embed(["hello"])))
 
-            # Determine embedding dimension by running one sample embed.
-            dim = len(next(self._embedder.embed(["hello"])) )
-            self._qdrant.create_collection(
-                collection_name=self._collection,
-                vectors_config=qm.VectorParams(size=dim, distance=qm.Distance.COSINE),
-            )
-            # Payload index for filtering by user
-            self._qdrant.create_payload_index(
-                collection_name=self._collection,
-                field_name="user_phone",
-                field_schema=qm.PayloadSchemaType.KEYWORD,
-            )
-            logger.info(f"Created Qdrant collection={self._collection} dim={dim}")
+            for coll in [self._facts_collection, self._summaries_collection]:
+                if coll not in existing:
+                    self._qdrant.create_collection(
+                        collection_name=coll,
+                        vectors_config=qm.VectorParams(
+                            size=dim, distance=qm.Distance.COSINE
+                        ),
+                    )
+                    self._qdrant.create_payload_index(
+                        collection_name=coll,
+                        field_name="user_phone",
+                        field_schema=qm.PayloadSchemaType.KEYWORD,
+                    )
+                    logger.info(f"Created Qdrant collection={coll} dim={dim}")
+
         except Exception as e:
-            logger.error(f"Failed to ensure Qdrant collection: {e}")
+            logger.error(f"Failed to ensure Qdrant collections: {e}")
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         return [list(v) for v in self._embedder.embed(texts)]
 
-    def _chunk_text(self, text: str, *, max_chars: int = 700, overlap: int = 120) -> List[str]:
-        """Chunk long text into overlapping windows.
+    # -------------------- Facts: Extract & Store --------------------
 
-        Rationale: embedding/retrieval works far better on small chunks than on
-        an entire call transcript.
-
-        - max_chars ~ 500-900 is a good range for semantic retrieval
-        - overlap preserves continuity across boundaries
-        """
-        text = (text or "").strip()
-        if not text:
-            return []
-        if len(text) <= max_chars:
-            return [text]
-
-        units = _split_on_boundaries(text)
-        chunks: List[str] = []
-        cur = ""
-        for u in units:
-            if not cur:
-                cur = u
-            elif len(cur) + 1 + len(u) <= max_chars:
-                cur = cur + "\n" + u
-            else:
-                chunks.append(cur)
-                # start next with overlap tail
-                tail = cur[-overlap:] if overlap > 0 and len(cur) > overlap else ""
-                cur = (tail + "\n" + u).strip() if tail else u
-
-        if cur:
-            chunks.append(cur)
-
-        # Final pass: if any chunk still too big (rare), hard-split
-        final: List[str] = []
-        for c in chunks:
-            if len(c) <= max_chars:
-                final.append(c)
-            else:
-                for i in range(0, len(c), max_chars):
-                    piece = c[i : i + max_chars].strip()
-                    if piece:
-                        final.append(piece)
-        return final
-
-    # ------------------------- Public API -------------------------
-    def ingest(
+    def extract_and_store_facts(
         self,
         *,
         user_phone: str,
-        text: str,
+        agent_message: str,
+        user_response: str,
         source: Optional[Dict[str, Any]] = None,
-        tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Store a memory event and index it for vector search.
+        """Extract facts from an exchange via LLM and store new ones in Qdrant.
 
-        Strategy:
-        - Always store the FULL text in MongoDB (source of truth)
-        - For vector search, index smaller chunks for better retrieval quality
+        Returns: {facts_extracted: int, facts_stored: int, facts_skipped: int}
         """
-        user_phone = normalize_phone_e164(user_phone, default_cc=settings.DEFAULT_COUNTRY_CODE)
+        user_phone = normalize_phone_e164(
+            user_phone, default_cc=settings.DEFAULT_COUNTRY_CODE
+        )
+
+        # Step 1: Extract facts via Gemini
+        facts = _extract_facts_via_llm(agent_message, user_response)
+        if not facts:
+            return {"facts_extracted": 0, "facts_stored": 0, "facts_skipped": 0}
+
+        # Step 2: Embed all facts
+        vectors = self._embed(facts)
+
+        # Step 3: Dedup — for each fact, check if a similar one already exists
+        stored = 0
+        skipped = 0
         created_at = _now_utc_iso()
-        tags = tags or []
-        event = {
-            "user_phone": user_phone,
-            "text": text,
-            "source": source or {},
-            "tags": tags,
-            "created_at": created_at,
+
+        for fact, vec in zip(facts, vectors):
+            if self._fact_exists(user_phone, vec):
+                skipped += 1
+                logger.debug(f"Fact dedup: skipping '{fact[:60]}...'")
+                continue
+
+            point_id = _stable_id(user_phone, fact)
+            payload = {
+                "user_phone": user_phone,
+                "fact": fact,
+                "created_at": created_at,
+                "source": source or {},
+            }
+
+            try:
+                self._qdrant.upsert(
+                    collection_name=self._facts_collection,
+                    points=[qm.PointStruct(id=point_id, vector=vec, payload=payload)],
+                    wait=False,
+                )
+                stored += 1
+                logger.info(f"Stored fact: '{fact[:80]}'")
+            except Exception as e:
+                logger.warning(f"Failed to store fact: {e}")
+
+        return {
+            "facts_extracted": len(facts),
+            "facts_stored": stored,
+            "facts_skipped": skipped,
         }
 
-        # Mongo insert (always)
-        mongo_id = self.db.user_memory_events.insert_one(event).inserted_id
-
-        # Vector upsert (best-effort)
+    def _fact_exists(self, user_phone: str, vector: List[float]) -> bool:
+        """Check if a semantically similar fact already exists for this user."""
         try:
-            chunks = self._chunk_text(text, max_chars=700, overlap=120)
-            # If it's short, keep as a single chunk.
-            if not chunks:
-                chunks = [text]
-
-            vectors = self._embed(chunks)
-            points: List[qm.PointStruct] = []
-            for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
-                chunk_source = dict(source or {})
-                chunk_source.update({"chunk_index": i, "chunk_count": len(chunks)})
-
-                point_id = _stable_point_id(user_phone, chunk, chunk_source)
-                payload = {
-                    "user_phone": user_phone,
-                    "text": chunk,
-                    "created_at": created_at,
-                    "source": chunk_source,
-                    "tags": tags,
-                }
-                points.append(qm.PointStruct(id=point_id, vector=vec, payload=payload))
-
-            self._qdrant.upsert(
-                collection_name=self._collection,
-                points=points,
-                wait=False,
+            results = self._qdrant.search(
+                collection_name=self._facts_collection,
+                query_vector=vector,
+                limit=1,
+                score_threshold=self.DEDUP_THRESHOLD,
+                query_filter=qm.Filter(
+                    must=[
+                        qm.FieldCondition(
+                            key="user_phone",
+                            match=qm.MatchValue(value=user_phone),
+                        )
+                    ]
+                ),
             )
+            return len(results) > 0
         except Exception as e:
-            logger.warning(f"Vector upsert failed (continuing): {e}")
+            logger.warning(f"Fact dedup check failed: {e}")
+            return False
 
-        # Update lightweight profile summary (Option A)
-        # For long transcripts, only feed a compact excerpt.
-        self._update_profile_summary(user_phone=user_phone, text=text)
+    # -------------------- Facts: Search --------------------
 
-        return {"status": "success", "mongo_id": str(mongo_id), "chunk_count": len(self._chunk_text(text, max_chars=700, overlap=120)) or 1}
-
-    def search(
+    def search_facts(
         self,
         *,
         user_phone: str,
         query: str,
         top_k: int = 5,
-    ) -> Dict[str, Any]:
-        """Return profile + vector hits for this user."""
-        user_phone = normalize_phone_e164(user_phone, default_cc=settings.DEFAULT_COUNTRY_CODE)
-        profile = self.db.user_memory_profile.find_one({"user_phone": user_phone}) or {}
-        profile_out = {
-            "user_phone": user_phone,
-            "summary": profile.get("summary", ""),
-            "updated_at": profile.get("updated_at"),
-        }
+    ) -> List[Dict[str, Any]]:
+        """Vector search for relevant facts. Returns list of {fact, score, created_at}."""
+        user_phone = normalize_phone_e164(
+            user_phone, default_cc=settings.DEFAULT_COUNTRY_CODE
+        )
 
-        hits: List[Dict[str, Any]] = []
         try:
             qvec = self._embed([query])[0]
-            res = self._qdrant.search(
-                collection_name=self._collection,
+            results = self._qdrant.search(
+                collection_name=self._facts_collection,
                 query_vector=qvec,
                 limit=top_k,
                 query_filter=qm.Filter(
@@ -276,49 +354,135 @@ class MemoryService:
                     ]
                 ),
             )
-            for r in res:
+
+            return [
+                {
+                    "fact": (r.payload or {}).get("fact", ""),
+                    "score": r.score,
+                    "created_at": (r.payload or {}).get("created_at"),
+                }
+                for r in results
+            ]
+
+        except Exception as e:
+            logger.warning(f"Fact search failed: {e}")
+            return []
+
+    # -------------------- Bootstrap: Get all facts + recent summaries --------------------
+
+    def bootstrap(
+        self,
+        *,
+        user_phone: str,
+        max_facts: int = 20,
+        max_summaries: int = 3,
+    ) -> Dict[str, Any]:
+        """Retrieve all known facts and recent call summaries for a user.
+
+        Uses filtered scroll (no embedding needed) — fast.
+        Returns: {facts: [...], summaries: [...]}
+        """
+        user_phone = normalize_phone_e164(
+            user_phone, default_cc=settings.DEFAULT_COUNTRY_CODE
+        )
+        phone_filter = qm.Filter(
+            must=[
+                qm.FieldCondition(
+                    key="user_phone",
+                    match=qm.MatchValue(value=user_phone),
+                )
+            ]
+        )
+
+        facts = []
+        try:
+            results, _ = self._qdrant.scroll(
+                collection_name=self._facts_collection,
+                scroll_filter=phone_filter,
+                limit=max_facts,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for r in results:
                 payload = r.payload or {}
-                hits.append(
+                facts.append(
                     {
-                        "score": r.score,
-                        "text": payload.get("text", ""),
+                        "fact": payload.get("fact", ""),
                         "created_at": payload.get("created_at"),
-                        "tags": payload.get("tags", []),
-                        "source": payload.get("source", {}),
                     }
                 )
         except Exception as e:
-            logger.warning(f"Vector search failed: {e}")
+            logger.warning(f"Bootstrap facts scroll failed: {e}")
 
-        return {"profile": profile_out, "hits": hits}
-
-    # ------------------------- Profile summary (MVP) -------------------------
-    def _update_profile_summary(self, *, user_phone: str, text: str):
-        """MVP: keep a rolling last-updated + append-only summary.
-
-        Later we can replace this with an LLM summarizer in backend.
-        """
+        summaries = []
         try:
-            existing = self.db.user_memory_profile.find_one({"user_phone": user_phone})
-            summary = (existing or {}).get("summary", "").strip()
-
-            # Keep it bounded
-            new_line = text.strip().replace("\n", " ")
-            if len(new_line) > 240:
-                new_line = new_line[:240] + "…"
-
-            # Append
-            updated = (summary + "\n" + new_line).strip() if summary else new_line
-            if len(updated) > 2000:
-                updated = updated[-2000:]
-
-            self.db.user_memory_profile.update_one(
-                {"user_phone": user_phone},
-                {"$set": {"summary": updated, "updated_at": _now_utc_iso()}},
-                upsert=True,
+            results, _ = self._qdrant.scroll(
+                collection_name=self._summaries_collection,
+                scroll_filter=phone_filter,
+                limit=max_summaries,
+                with_payload=True,
+                with_vectors=False,
             )
+            for r in results:
+                payload = r.payload or {}
+                summaries.append(
+                    {
+                        "summary": payload.get("summary", ""),
+                        "call_id": payload.get("call_id"),
+                        "created_at": payload.get("created_at"),
+                    }
+                )
         except Exception as e:
-            logger.warning(f"Profile summary update failed: {e}")
+            logger.warning(f"Bootstrap summaries scroll failed: {e}")
+
+        return {"facts": facts, "summaries": summaries}
+
+    # -------------------- Summaries: Generate & Store --------------------
+
+    def generate_and_store_summary(
+        self,
+        *,
+        user_phone: str,
+        transcript: str,
+        call_id: Optional[str] = None,
+        summary_prompt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate a call summary via LLM and store in Qdrant.
+
+        Returns: {summary: str, stored: bool}
+        """
+        user_phone = normalize_phone_e164(
+            user_phone, default_cc=settings.DEFAULT_COUNTRY_CODE
+        )
+
+        summary = _generate_summary_via_llm(transcript, summary_prompt)
+        if not summary:
+            return {"summary": "", "stored": False}
+
+        # Store in summaries collection (no dedup — one per call)
+        created_at = _now_utc_iso()
+        point_id = _stable_id(user_phone, f"summary:{call_id or created_at}")
+        vec = self._embed([summary])[0]
+
+        payload = {
+            "user_phone": user_phone,
+            "summary": summary,
+            "call_id": call_id,
+            "created_at": created_at,
+        }
+
+        try:
+            self._qdrant.upsert(
+                collection_name=self._summaries_collection,
+                points=[qm.PointStruct(id=point_id, vector=vec, payload=payload)],
+                wait=False,
+            )
+            logger.info(f"Stored call summary for {user_phone}: '{summary[:80]}...'")
+            return {"summary": summary, "stored": True}
+        except Exception as e:
+            logger.warning(f"Failed to store summary: {e}")
+            return {"summary": summary, "stored": False}
 
 
+# Singleton
 memory_service = MemoryService()

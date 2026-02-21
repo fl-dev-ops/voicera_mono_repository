@@ -1,58 +1,47 @@
-"""Persistent memory retrieval processor.
+"""Fact-based persistent memory processor for Pipecat pipeline.
 
-Inspired by Pipecat's Mem0MemoryService pattern, but backed by Voicera backend
-API (/api/v1/memory/search).
+Two responsibilities:
+1. Per-turn RETRIEVAL: search relevant facts using user's raw text, inject into LLM context
+2. Per-turn EXTRACTION: after each user turn, fire async fact extraction (non-blocking)
 
-Goal:
-- At the beginning and on each user turn, fetch relevant context for the student
-  and inject it into the LLM context as a SYSTEM message.
-
-Notes:
-- We *replace* the previous injected memory block to prevent unbounded growth.
-- We keep this best-effort: if backend is down, conversation continues.
+The processor sits between context_aggregator.user() and the LLM in the pipeline.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
 from pipecat.frames.frames import Frame, LLMMessagesFrame
-from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from .backend_utils import memory_search
+from .backend_utils import memory_extract_and_store, memory_search_facts
 
 
-MEMORY_TAG = "PERSISTENT_MEMORY:\n"
+FACTS_TAG = "KNOWN_FACTS:\n"
 
 
-def _format_memory_block(mem: Dict[str, Any], *, max_chars: int = 1400) -> str:
-    profile = (mem.get("profile") or {}).get("summary", "")
-    hits = mem.get("hits") or []
+def _format_facts_block(facts: List[Dict[str, Any]], *, max_chars: int = 1200) -> str:
+    """Format a list of facts into a system message block."""
+    if not facts:
+        return ""
 
-    lines: List[str] = []
-    if profile and str(profile).strip():
-        lines.append("PROFILE SUMMARY:\n" + str(profile).strip())
+    fact_lines = []
+    for f in facts:
+        fact_text = (f.get("fact") or "").strip()
+        if fact_text:
+            fact_lines.append(f"- {fact_text}")
 
-    if hits:
-        # Keep top hits and strip empties
-        hit_lines = []
-        for h in hits:
-            t = (h or {}).get("text")
-            if t and str(t).strip():
-                hit_lines.append("- " + str(t).strip())
-        if hit_lines:
-            lines.append("RELEVANT PAST SNIPPETS:\n" + "\n".join(hit_lines[:10]))
-
-    if not lines:
+    if not fact_lines:
         return ""
 
     block = (
-        MEMORY_TAG
-        + "Use this persistent memory to personalize. If it conflicts with the user now, prefer the user.\n\n"
-        + "\n\n".join(lines)
+        FACTS_TAG
+        + "Use these known facts about the user to personalize. "
+        + "If something conflicts with what the user says now, prefer what they say now.\n\n"
+        + "\n".join(fact_lines)
     )
 
     if len(block) > max_chars:
@@ -61,75 +50,152 @@ def _format_memory_block(mem: Dict[str, Any], *, max_chars: int = 1400) -> str:
     return block
 
 
-def _strip_previous_memory(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    for m in messages:
-        if m.get("role") == "system" and isinstance(m.get("content"), str):
-            if m["content"].startswith(MEMORY_TAG):
-                continue
-        out.append(m)
-    return out
+def _strip_previous_facts(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove any previously injected facts block from messages."""
+    return [
+        m
+        for m in messages
+        if not (
+            m.get("role") == "system"
+            and isinstance(m.get("content"), str)
+            and m["content"].startswith(FACTS_TAG)
+        )
+    ]
 
 
-class VoiceraMemoryRetrievalService(FrameProcessor):
-    """Injects persistent memory into LLM messages on each user turn."""
+class VoiceraMemoryProcessor(FrameProcessor):
+    """Per-turn fact retrieval + async fact extraction.
 
-    def __init__(self, *, user_phone: str, top_k: int = 6):
+    Retrieval (blocking, before LLM):
+        - Intercepts LLMMessagesFrame going downstream
+        - Searches Qdrant for facts relevant to user's latest message
+        - Injects matching facts as a system message
+
+    Extraction (non-blocking, fire-and-forget):
+        - After retrieval, fires an async task to extract new facts from the exchange
+        - Does NOT block the pipeline
+    """
+
+    def __init__(
+        self,
+        *,
+        user_phone: str,
+        call_sid: Optional[str] = None,
+        agent_type: Optional[str] = None,
+        top_k: int = 5,
+    ):
         super().__init__()
         self.user_phone = user_phone
+        self.call_sid = call_sid
+        self.agent_type = agent_type
         self.top_k = top_k
         self._last_query: Optional[str] = None
+        self._last_agent_message: Optional[str] = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        # We only need to intercept messages going downstream to the LLM.
-        if direction != FrameDirection.DOWNSTREAM:
-            await self.push_frame(frame, direction)
-            return
-
-        if not isinstance(frame, LLMMessagesFrame):
+        if direction != FrameDirection.DOWNSTREAM or not isinstance(
+            frame, LLMMessagesFrame
+        ):
             await self.push_frame(frame, direction)
             return
 
         try:
             messages = frame.messages
-            context = LLMContext(messages)
 
+            # Find the latest user message and the last agent message before it
             latest_user: Optional[str] = None
-            for m in reversed(context.get_messages()):
-                if m.get("role") == "user" and isinstance(m.get("content"), str) and m["content"].strip():
-                    latest_user = m["content"].strip()
+            latest_agent: Optional[str] = None
+
+            for m in reversed(messages):
+                role = m.get("role")
+                content = m.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    continue
+                if role == "user" and latest_user is None:
+                    latest_user = content.strip()
+                elif (
+                    role in ("assistant", "model")
+                    and latest_user is not None
+                    and latest_agent is None
+                ):
+                    latest_agent = content.strip()
                     break
 
             if not latest_user:
                 await self.push_frame(frame, direction)
                 return
 
-            # Avoid repeating retrieval on identical user text.
+            # Skip if same query as last time (dedup)
             if self._last_query == latest_user:
                 await self.push_frame(frame, direction)
                 return
             self._last_query = latest_user
 
-            mem = await memory_search(user_phone=self.user_phone, query=latest_user, top_k=self.top_k)
-            if not mem:
-                await self.push_frame(frame, direction)
-                return
+            # --- RETRIEVAL: search for relevant facts ---
+            facts = await memory_search_facts(
+                user_phone=self.user_phone,
+                query=latest_user,
+                top_k=self.top_k,
+            )
 
-            block = _format_memory_block(mem)
-            if not block:
-                await self.push_frame(frame, direction)
-                return
+            if facts:
+                block = _format_facts_block(facts)
+                if block:
+                    new_messages = _strip_previous_facts(list(messages))
+                    # Insert after first system prompt
+                    insert_at = (
+                        1
+                        if new_messages and new_messages[0].get("role") == "system"
+                        else 0
+                    )
+                    new_messages.insert(insert_at, {"role": "system", "content": block})
+                    await self.push_frame(LLMMessagesFrame(new_messages), direction)
+                else:
+                    await self.push_frame(frame, direction)
+            else:
+                # Strip any stale facts block
+                new_messages = _strip_previous_facts(list(messages))
+                if len(new_messages) != len(messages):
+                    await self.push_frame(LLMMessagesFrame(new_messages), direction)
+                else:
+                    await self.push_frame(frame, direction)
 
-            new_messages = _strip_previous_memory(context.get_messages())
+            # --- EXTRACTION: fire-and-forget async fact extraction ---
+            # Use the agent's last message + user's response for context
+            agent_msg = latest_agent or self._last_agent_message or ""
+            if agent_msg:
+                self._last_agent_message = agent_msg
 
-            # Insert memory block right after the first system prompt if present.
-            insert_at = 1 if new_messages and new_messages[0].get("role") == "system" else 0
-            new_messages.insert(insert_at, {"role": "system", "content": block})
-
-            await self.push_frame(LLMMessagesFrame(new_messages), direction)
+            asyncio.create_task(self._extract_facts_background(agent_msg, latest_user))
 
         except Exception as e:
-            logger.warning(f"Memory retrieval processor failed (continuing): {e}")
+            logger.warning(f"Memory processor failed (continuing): {e}")
             await self.push_frame(frame, direction)
+
+    async def _extract_facts_background(self, agent_message: str, user_response: str):
+        """Fire-and-forget fact extraction. Errors are logged, never raised."""
+        try:
+            source = {}
+            if self.call_sid:
+                source["call_sid"] = self.call_sid
+            if self.agent_type:
+                source["agent_type"] = self.agent_type
+
+            result = await memory_extract_and_store(
+                user_phone=self.user_phone,
+                agent_message=agent_message,
+                user_response=user_response,
+                source=source,
+            )
+            if result:
+                extracted = result.get("facts_extracted", 0)
+                stored = result.get("facts_stored", 0)
+                skipped = result.get("facts_skipped", 0)
+                if extracted > 0:
+                    logger.info(
+                        f"Memory facts: extracted={extracted}, stored={stored}, skipped={skipped}"
+                    )
+        except Exception as e:
+            logger.warning(f"Background fact extraction failed: {e}")

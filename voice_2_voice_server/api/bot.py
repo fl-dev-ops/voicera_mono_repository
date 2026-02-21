@@ -95,6 +95,8 @@ async def run_bot(
     audiobuffer: AudioBufferProcessor,
     call_data: dict,
     user_phone: str | None = None,
+    call_sid: str | None = None,
+    agent_type: str | None = None,
     handle_sigint: bool = False,
     vad_analyzer: SileroVADAnalyzer = None,
 ) -> None:
@@ -105,6 +107,9 @@ async def run_bot(
         agent_config: Agent configuration dictionary
         audiobuffer: Audio buffer processor for recording
         call_data: Shared dict for accumulating transcript lines
+        user_phone: User's phone number (for memory)
+        call_sid: Call identifier (for memory tagging)
+        agent_type: Agent type identifier (for memory tagging)
         handle_sigint: Whether to handle SIGINT for graceful shutdown
         vad_analyzer: SileroVADAnalyzer instance (now passed to LLMUserAggregatorParams)
     """
@@ -139,37 +144,46 @@ async def run_bot(
         logger.info(f"Persistent memory: {'ENABLED' if enable_memory else 'DISABLED'}")
 
         # --- Persistent memory bootstrap (best-effort) ---
-        # We inject a compact memory block as a SYSTEM message before the conversation begins.
+        # Fetch all known facts + recent summaries for this user from Qdrant.
+        # Injected as a SYSTEM message before the conversation begins.
         if user_phone and enable_memory:
             try:
-                from .backend_utils import memory_search
+                from .backend_utils import memory_bootstrap
 
-                memory_top_k = int(os.getenv("MEMORY_TOP_K", "6"))
-                mem = await memory_search(
-                    user_phone=user_phone,
-                    query="student profile, preferences, goals, weak areas, what we last discussed",
-                    top_k=memory_top_k,
-                )
+                mem = await memory_bootstrap(user_phone=user_phone)
                 if mem:
-                    profile = (mem.get("profile") or {}).get("summary", "")
-                    hits = mem.get("hits") or []
+                    facts = mem.get("facts") or []
+                    summaries = mem.get("summaries") or []
                     lines = []
-                    if profile.strip():
-                        lines.append("PROFILE SUMMARY:\n" + profile.strip())
-                    if hits:
-                        lines.append(
-                            "RELEVANT PAST SNIPPETS:\n"
-                            + "\n".join(
-                                [
-                                    f"- {h.get('text', '').strip()}"
-                                    for h in hits
-                                    if h.get("text")
-                                ]
+
+                    if facts:
+                        fact_lines = [
+                            f"- {f.get('fact', '').strip()}"
+                            for f in facts
+                            if f.get("fact", "").strip()
+                        ]
+                        if fact_lines:
+                            lines.append(
+                                "KNOWN FACTS ABOUT THIS USER:\n" + "\n".join(fact_lines)
                             )
-                        )
+
+                    if summaries:
+                        summary_lines = []
+                        for s in summaries:
+                            text = (s.get("summary") or "").strip()
+                            if text:
+                                call_id = s.get("call_id", "unknown")
+                                summary_lines.append(f"[call {call_id}] {text}")
+                        if summary_lines:
+                            lines.append(
+                                "RECENT CALL SUMMARIES:\n" + "\n".join(summary_lines)
+                            )
+
                     if lines:
                         agent_config["_memory_system_block"] = (
-                            "You have persistent memory about this student. Use it to personalize.\n\n"
+                            "You have persistent memory about this user. "
+                            "Use it to personalize. If something conflicts "
+                            "with what the user says now, prefer what they say now.\n\n"
                             + "\n\n".join(lines)
                         )
             except Exception as e:
@@ -310,7 +324,7 @@ async def run_bot(
             context_aggregator.user(),
         ]
 
-        # Persistent memory retrieval on each user turn (best-effort)
+        # Persistent memory: per-turn fact retrieval + async fact extraction
         # Gated by agent-level enable_memory flag AND env var ENABLE_MEMORY_EACH_TURN
         enable_memory_each_turn = os.getenv(
             "ENABLE_MEMORY_EACH_TURN", "true"
@@ -319,21 +333,24 @@ async def run_bot(
             "1",
             "yes",
         )
-        memory_top_k = int(os.getenv("MEMORY_TOP_K", "6"))
+        memory_top_k = int(os.getenv("MEMORY_TOP_K", "5"))
         if user_phone and enable_memory and enable_memory_each_turn:
             try:
-                from .memory_processor import VoiceraMemoryRetrievalService
+                from .memory_processor import VoiceraMemoryProcessor
 
                 processors.append(
-                    VoiceraMemoryRetrievalService(
-                        user_phone=user_phone, top_k=memory_top_k
+                    VoiceraMemoryProcessor(
+                        user_phone=user_phone,
+                        call_sid=call_sid,
+                        agent_type=agent_type,
+                        top_k=memory_top_k,
                     )
                 )
                 logger.info(
                     f"Persistent memory each turn: ENABLED (top_k={memory_top_k})"
                 )
             except Exception as e:
-                logger.warning(f"Could not init memory retrieval processor: {e}")
+                logger.warning(f"Could not init memory processor: {e}")
         else:
             logger.info("Persistent memory each turn: DISABLED")
 
@@ -514,6 +531,8 @@ async def bot(
             audiobuffer,
             call_data,
             user_phone=user_phone,
+            call_sid=call_sid,
+            agent_type=agent_type,
             handle_sigint=False,
             vad_analyzer=vad_analyzer,
         )
@@ -553,24 +572,27 @@ async def bot(
         else:
             logger.warning(f"No transcript data to save for {call_sid}")
 
-        # Ingest transcript into persistent memory (best-effort)
+        # Post-call summary: generate and store a Gemini summary in Qdrant
+        # (replaces old raw transcript ingest)
         # Gated by agent-level enable_memory flag (defaults to True)
         enable_memory = agent_config.get("enable_memory", True)
         if isinstance(enable_memory, str):
             enable_memory = enable_memory.lower() in ("true", "1", "yes")
         if user_phone and enable_memory and call_data.get("transcript_lines"):
             try:
-                from .backend_utils import memory_ingest
+                from .backend_utils import memory_summarize
 
+                # Build transcript WITHOUT system prompt — only user/assistant turns
                 transcript_text = "\n".join(call_data["transcript_lines"])
-                await memory_ingest(
+                summary_prompt = agent_config.get("summary_prompt")
+                await memory_summarize(
                     user_phone=user_phone,
-                    text=transcript_text,
-                    source={"call_sid": call_sid, "agent_type": agent_type},
-                    tags=["call_transcript"],
+                    transcript=transcript_text,
+                    call_id=call_sid,
+                    summary_prompt=summary_prompt,
                 )
             except Exception as e:
-                logger.warning(f"Memory ingest failed (continuing): {e}")
+                logger.warning(f"Memory summarize failed (continuing): {e}")
 
         await submit_call_recording(
             call_sid=call_sid,
