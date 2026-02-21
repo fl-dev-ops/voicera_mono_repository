@@ -233,3 +233,6 @@ Agent configs are JSON files in `agent_configs/`. Example:
 1. Create service implementation in `services/`
 2. Add factory function in `api/services.py`
 3. Add language mappings in `config/` if needed
+
+---
+*Build: 4819f0d — fact-based memory rewrite + google-genai migration*

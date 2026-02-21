@@ -165,3 +165,6 @@ You can configure the application using environment variables:
 - `GEMINI_API_KEY` - Google Gemini API key (required for audio evaluation)
 - `GEMINI_MODEL` - Gemini model name (default: gemini-flash-lite-latest)
 
+---
+*Build: 4819f0d — fact-based memory rewrite + google-genai migration*
+
