@@ -205,11 +205,14 @@ async def run_bot(
                 f"({', '.join(tools_config)})"
             )
 
-        context = LLMContext(
-            context_messages,
-            tools=tools_schema,
-            tool_choice="auto" if tools_schema else None,
-        )
+        # Build LLMContext — only pass tools/tool_choice when tools are configured.
+        # Pipecat requires NOT_GIVEN (not None) when tools are absent.
+        context_kwargs = {}
+        if tools_schema:
+            context_kwargs["tools"] = tools_schema
+            context_kwargs["tool_choice"] = "auto"
+
+        context = LLMContext(context_messages, **context_kwargs)
 
         # Read Smart Turn config from env vars (tuneable without rebuild)
         # stop_secs: silence fallback — if ML model keeps saying "incomplete",
