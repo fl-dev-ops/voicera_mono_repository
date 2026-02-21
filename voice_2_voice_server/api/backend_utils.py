@@ -16,6 +16,7 @@ from storage.minio_client import MinIOStorage
 # Backend API Helper Functions
 # ============================================================================
 
+
 def _get_backend_url() -> str:
     """Get backend API URL from environment."""
     return os.getenv("VOICERA_BACKEND_URL", "http://localhost:8000")
@@ -41,30 +42,31 @@ def _get_httpx_client() -> httpx.AsyncClient:
     # Keep timeouts tight; voice turn latency matters.
     return httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0))
 
+
 async def fetch_agent_config_from_backend(agent_id: str) -> dict:
     """
     Fetch agent configuration from backend API.
-    
+
     Args:
         agent_id: Agent ID to fetch config for
-        
+
     Returns:
         Agent configuration dictionary
     """
     backend_url = _get_backend_url()
     api_endpoint = f"{backend_url}/api/v1/agents/config/id/{agent_id}"
     headers = _get_api_headers()
-    
+
     try:
         logger.info(f"📥 Fetching agent config from backend: {agent_id}")
         response = requests.get(api_endpoint, headers=headers, timeout=10)
         response.raise_for_status()
-        
+
         agent_data = response.json()
         # Extract agent_config from response
         agent_config = agent_data.get("agent_config", {})
         logger.info(f"📥 Agent config: {agent_config}")
-        
+
         # Add other fields that might be needed
         if "org_id" in agent_data:
             agent_config["org_id"] = agent_data["org_id"]
@@ -72,10 +74,10 @@ async def fetch_agent_config_from_backend(agent_id: str) -> dict:
             agent_config["agent_type"] = agent_data["agent_type"]
         if "greeting_message" in agent_data:
             agent_config["greeting_message"] = agent_data["greeting_message"]
-            
+
         logger.info(f"Agent config fetched successfully: {agent_id}")
         return agent_config
-        
+
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to fetch agent config from backend: {e}")
         logger.debug(f"API endpoint: {api_endpoint}")
@@ -86,7 +88,7 @@ async def fetch_agent_config_from_backend(agent_id: str) -> dict:
         return None
 
 
-async def create_meeting_in_backend(payload) :
+async def create_meeting_in_backend(payload):
     """Create a meeting record in the backend when call starts."""
     backend_url = _get_backend_url()
     api_endpoint = f"{backend_url}/api/v1/meetings"
@@ -94,7 +96,9 @@ async def create_meeting_in_backend(payload) :
 
     try:
         logger.info(f"Creating meeting in backend: {payload}")
-        response = requests.post(api_endpoint, json=payload, headers=headers, timeout=10)
+        response = requests.post(
+            api_endpoint, json=payload, headers=headers, timeout=10
+        )
         response.raise_for_status()
         return response.json()
 
@@ -115,82 +119,86 @@ async def create_rejected_call_meeting(
 ) -> bool:
     """
     Create a meeting record for a rejected/busy call.
-    
+
     This function is called when a call is rejected (CALL_REJECTED) before
     the websocket connection is established. It creates a minimal meeting
     record with available metadata from the webhook.
-    
+
     Args:
         call_uuid: Call UUID from Vobiz (used as meeting_id)
         agent_type: Type of agent used
         form_data: Form data from Vobiz webhook containing call metadata (dict-like)
         from_number: From number from query params (fallback if not in form_data)
         to_number: To number from query params (fallback if not in form_data)
-        
+
     Returns:
         True if meeting was created successfully, False otherwise
     """
     backend_url = _get_backend_url()
     api_endpoint = f"{backend_url}/api/v1/meetings"
     headers = _get_api_headers()
-    
+
     try:
         # Fetch agent config to get org_id
         agent_config = await fetch_agent_config_from_backend(agent_type)
         if not agent_config:
-            logger.warning(f"⚠️ Could not fetch agent config for {agent_type}, skipping meeting creation")
+            logger.warning(
+                f"⚠️ Could not fetch agent config for {agent_type}, skipping meeting creation"
+            )
             return False
-        
+
         # Helper function to safely get value from form_data (handle both dict and FormData)
-        def get_form_value(key: str, default: str = '') -> str:
+        def get_form_value(key: str, default: str = "") -> str:
             value = form_data.get(key, default)
             # Handle case where value might be a list (multi-value form fields)
             if isinstance(value, list):
                 return value[0] if value else default
             return str(value) if value else default
-        
+
         # Extract phone numbers - prefer form_data, fallback to query params
-        from_num = get_form_value('From') or get_form_value('from_number') or from_number or ''
-        to_num = get_form_value('To') or get_form_value('to_number') or to_number or ''
-        
+        from_num = (
+            get_form_value("From") or get_form_value("from_number") or from_number or ""
+        )
+        to_num = get_form_value("To") or get_form_value("to_number") or to_number or ""
+
         # Normalize phone numbers (remove leading/trailing spaces)
         from_num = from_num.strip() if from_num else None
         to_num = to_num.strip() if to_num else None
-        
+
         # Parse timestamps from form_data
-        start_time_str = get_form_value('StartTime')
-        end_time_str = get_form_value('EndTime')
-        
+        start_time_str = get_form_value("StartTime")
+        end_time_str = get_form_value("EndTime")
+
         # Convert to ISO format UTC timestamps
         start_time_utc = None
         end_time_utc = None
-        
+
         if start_time_str:
             try:
                 # Parse the datetime string (format: '2026-01-14 17:04:30')
-                start_dt = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
-                start_time_utc = start_dt.isoformat() + 'Z'
+                start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+                start_time_utc = start_dt.isoformat() + "Z"
             except (ValueError, TypeError) as e:
                 logger.warning(f"⚠️ Could not parse StartTime '{start_time_str}': {e}")
-                start_time_utc = datetime.utcnow().isoformat() + 'Z'
+                start_time_utc = datetime.utcnow().isoformat() + "Z"
         else:
-            start_time_utc = datetime.utcnow().isoformat() + 'Z'
-        
+            start_time_utc = datetime.utcnow().isoformat() + "Z"
+
         if end_time_str:
             try:
                 # Parse the datetime string (format: '2026-01-14 17:04:30')
-                end_dt = datetime.strptime(end_time_str, '%Y-%m-%d %H:%M:%S')
-                end_time_utc = end_dt.isoformat() + 'Z'
+                end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
+                end_time_utc = end_dt.isoformat() + "Z"
             except (ValueError, TypeError) as e:
                 logger.warning(f"⚠️ Could not parse EndTime '{end_time_str}': {e}")
                 end_time_utc = start_time_utc  # Use start time as fallback
         else:
             end_time_utc = start_time_utc  # If no end time, use start time
-        
+
         # Determine if inbound or outbound from Direction field
-        direction = get_form_value('Direction', '').lower()
-        inbound = direction == 'inbound'
-        
+        direction = get_form_value("Direction", "").lower()
+        inbound = direction == "inbound"
+
         # Build payload
         payload = {
             "meeting_id": call_uuid,
@@ -203,19 +211,21 @@ async def create_rejected_call_meeting(
             "inbound": inbound,
             "call_busy": True,
         }
-        
+
         # Add org_id if available in agent config
         if "org_id" in agent_config:
             payload["org_id"] = agent_config["org_id"]
-        
+
         logger.info(f"📤 Creating rejected call meeting in backend: {call_uuid}")
         logger.info(f"📤 Payload: {payload}")
-        
-        response = requests.post(api_endpoint, json=payload, headers=headers, timeout=10)
+
+        response = requests.post(
+            api_endpoint, json=payload, headers=headers, timeout=10
+        )
         response.raise_for_status()
         logger.info(f"✅ Rejected call meeting created successfully: {call_uuid}")
         return True
-        
+
     except requests.exceptions.RequestException as e:
         logger.error(f"❌ Failed to create rejected call meeting in backend: {e}")
         logger.debug(f"API endpoint: {api_endpoint}")
@@ -226,35 +236,32 @@ async def create_rejected_call_meeting(
         return False
 
 
-async def update_meeting_end_time(
-    call_sid: str,
-    end_time_utc: str
-) -> bool:
+async def update_meeting_end_time(call_sid: str, end_time_utc: str) -> bool:
     """
     Update meeting end_time_utc in the backend.
-    
+
     Args:
         call_sid: Call identifier (meeting_id)
         end_time_utc: ISO format UTC timestamp when call ended
-        
+
     Returns:
         True if meeting was updated successfully, False otherwise
     """
     backend_url = _get_backend_url()
     api_endpoint = f"{backend_url}/api/v1/meetings/{call_sid}"
     headers = _get_api_headers()
-    
-    payload = {
-        "end_time_utc": end_time_utc
-    }
-    
+
+    payload = {"end_time_utc": end_time_utc}
+
     try:
         logger.info(f"📤 Updating meeting end time in backend: {call_sid}")
-        response = requests.patch(api_endpoint, json=payload, headers=headers, timeout=10)
+        response = requests.patch(
+            api_endpoint, json=payload, headers=headers, timeout=10
+        )
         response.raise_for_status()
         logger.info(f"✅ Meeting end time updated successfully: {call_sid}")
         return True
-        
+
     except requests.exceptions.RequestException as e:
         logger.error(f"❌ Failed to update meeting end time: {e}")
         logger.debug(f"API endpoint: {api_endpoint}, payload: {payload}")
@@ -278,16 +285,17 @@ async def fetch_agent_by_phone_number(phone_number: str) -> Optional[Dict[str, A
     # Normalize phone number - convert local format to E.164
     # Vobiz may send "08071387434", DB has "+918071387434"
     normalized_number = phone_number
-    if phone_number.startswith('0'):
-        normalized_number = '+91' + phone_number[1:]  # Remove leading 0, add +91
-    elif not phone_number.startswith('+'):
-        normalized_number = '+' + phone_number  # Just add + if missing
+    if phone_number.startswith("0"):
+        normalized_number = "+91" + phone_number[1:]  # Remove leading 0, add +91
+    elif not phone_number.startswith("+"):
+        normalized_number = "+" + phone_number  # Just add + if missing
 
     logger.info(f"📞 Normalizing phone: {phone_number} → {normalized_number}")
 
     backend_url = _get_backend_url()
     from urllib.parse import quote
-    encoded_phone = quote(normalized_number, safe='')
+
+    encoded_phone = quote(normalized_number, safe="")
     api_endpoint = f"{backend_url}/api/v1/agents/by-phone/{encoded_phone}"
     headers = _get_api_headers()
 
@@ -311,16 +319,16 @@ async def submit_call_recording(
     agent_config: dict,
     storage: MinIOStorage,
     call_start_time: float,
-    start_time_utc: str
+    start_time_utc: str,
 ) -> None:
     """
     Submit call recording data to the backend API after a call ends.
-    
+
     This function:
     1. Reads the transcript from MinIO
     2. Sends call recording data to backend API
     3. Updates meeting end_time_utc in backend
-    
+
     Args:
         call_sid: Call identifier (same as meeting_id)
         agent_type: Type of agent used for the call
@@ -331,16 +339,16 @@ async def submit_call_recording(
     """
     backend_url = _get_backend_url()
     headers = _get_api_headers()
-    
+
     try:
         call_end_time = time.monotonic()
         call_duration = call_end_time - call_start_time
         end_time_utc = datetime.utcnow().isoformat()
-        
+
         # Build MinIO object URLs
         recording_url = f"minio://recordings/{call_sid}.wav"
         transcript_url = f"minio://transcripts/{call_sid}.txt"
-        
+
         # Read transcript content from MinIO
         transcript_content = None
         try:
@@ -350,7 +358,7 @@ async def submit_call_recording(
             response.release_conn()
         except Exception as e:
             logger.warning(f"⚠️ Could not read transcript: {e}")
-        
+
         # 1. Send call recording data to backend API
         api_endpoint = f"{backend_url}/api/v1/call-recordings"
         payload = {
@@ -363,14 +371,16 @@ async def submit_call_recording(
             "start_time_utc": start_time_utc,
             "end_time_utc": end_time_utc,
         }
-        
+
         # Add org_id if available in agent config
         if "org_id" in agent_config:
             payload["org_id"] = agent_config["org_id"]
-        
+
         try:
             logger.info(f"📤 Sending call recording data to backend: {call_sid}")
-            response = requests.post(api_endpoint, json=payload, headers=headers, timeout=10)
+            response = requests.post(
+                api_endpoint, json=payload, headers=headers, timeout=10
+            )
             response.raise_for_status()
             logger.info(f"✅ Call recording data saved successfully: {call_sid}")
         except requests.exceptions.RequestException as e:
@@ -378,10 +388,10 @@ async def submit_call_recording(
         except Exception as e:
             logger.error(f"❌ Error processing call recording data: {e}")
             logger.debug(traceback.format_exc())
-        
+
         # 2. Update meeting end_time_utc
         await update_meeting_end_time(call_sid, end_time_utc)
-        
+
     except Exception as e:
         logger.error(f"❌ Error in submit_call_recording: {e}")
         logger.debug(traceback.format_exc())
@@ -390,6 +400,7 @@ async def submit_call_recording(
 # =========================================================================
 # Memory API (backend)
 # =========================================================================
+
 
 async def fetch_meeting_internal(meeting_id: str) -> Optional[Dict[str, Any]]:
     """Fetch meeting metadata using bot API key."""
@@ -407,7 +418,9 @@ async def fetch_meeting_internal(meeting_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def memory_search(user_phone: str, query: str, top_k: int = 5) -> Optional[Dict[str, Any]]:
+async def memory_search(
+    user_phone: str, query: str, top_k: int = 5
+) -> Optional[Dict[str, Any]]:
     backend_url = _get_backend_url()
     api_endpoint = f"{backend_url}/api/v1/memory/search"
     headers = _get_api_headers()
@@ -446,4 +459,32 @@ async def memory_ingest(
             return True
     except Exception as e:
         logger.warning(f"Memory ingest failed: {e}")
+        return False
+
+
+async def save_screening_result(payload: Dict[str, Any]) -> bool:
+    """
+    Save screening result to backend API.
+
+    Called by the save_screening_result tool handler at end of screening call.
+
+    Args:
+        payload: Screening result data (meeting_id, candidate_name, outcome, etc.)
+
+    Returns:
+        True if saved successfully, False otherwise
+    """
+    backend_url = _get_backend_url()
+    api_endpoint = f"{backend_url}/api/v1/screening-results"
+    headers = _get_api_headers()
+
+    try:
+        logger.info(f"Saving screening result for meeting: {payload.get('meeting_id')}")
+        async with _get_httpx_client() as client:
+            resp = await client.post(api_endpoint, json=payload, headers=headers)
+            resp.raise_for_status()
+            logger.info(f"Screening result saved: {payload.get('meeting_id')}")
+            return True
+    except Exception as e:
+        logger.error(f"Failed to save screening result: {e}")
         return False

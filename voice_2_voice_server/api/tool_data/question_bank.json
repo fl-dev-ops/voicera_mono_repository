@@ -1,0 +1,602 @@
+[
+  {
+    "question_id": "Q001",
+    "question_text": "Tell me about yourself \u2014 anything you'd like to share.",
+    "type": "intro",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["fluency", "coherence"],
+    "good_answer_signals": ["shares personal info", "organized response", "comfortable speaking"],
+    "follow_up_hint": "If very short, ask about education or daily routine"
+  },
+  {
+    "question_id": "Q002",
+    "question_text": "What did you study, and did you enjoy it?",
+    "type": "intro",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["fluency", "coherence"],
+    "good_answer_signals": ["mentions education", "shares opinion", "gives reason"],
+    "follow_up_hint": "Ask what subject they liked most"
+  },
+  {
+    "question_id": "Q003",
+    "question_text": "What do you do on a typical day?",
+    "type": "intro",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["fluency", "range"],
+    "good_answer_signals": ["describes routine", "uses time words", "varied vocabulary"],
+    "follow_up_hint": "Ask about one activity they mentioned"
+  },
+  {
+    "question_id": "Q004",
+    "question_text": "What's something you're really good at?",
+    "type": "self_awareness",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["confidence", "fluency"],
+    "good_answer_signals": ["identifies a strength", "gives example", "shows self-awareness"],
+    "follow_up_hint": "If stuck, prompt with examples: computers, sports, cooking, helping people"
+  },
+  {
+    "question_id": "Q005",
+    "question_text": "What is something you'd like to get better at?",
+    "type": "self_awareness",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["self_awareness", "coherence"],
+    "good_answer_signals": ["honest about weakness", "shows growth mindset", "specific area"],
+    "follow_up_hint": "Ask what they've tried to improve it"
+  },
+  {
+    "question_id": "Q006",
+    "question_text": "Can you describe your hometown or the place where you live?",
+    "type": "intro",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["fluency", "range", "coherence"],
+    "good_answer_signals": ["descriptive language", "organized description", "personal connection"],
+    "follow_up_hint": "Ask what they like most about living there"
+  },
+  {
+    "question_id": "Q007",
+    "question_text": "Have you ever helped someone solve a problem? Tell me about it.",
+    "type": "behavioral",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["coherence", "empathy", "fluency"],
+    "good_answer_signals": ["tells a story", "shows empathy", "describes outcome"],
+    "follow_up_hint": "Ask how the other person felt after they helped"
+  },
+  {
+    "question_id": "Q008",
+    "question_text": "What kind of work environment do you prefer \u2014 working alone or with a team?",
+    "type": "self_awareness",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["self_awareness", "coherence"],
+    "good_answer_signals": ["clear preference", "gives reason", "shows awareness of strengths"],
+    "follow_up_hint": "Ask for an example of when they worked in that way"
+  },
+  {
+    "question_id": "Q010",
+    "question_text": "Why do you want to work in customer support?",
+    "type": "motivation",
+    "difficulty": "easy",
+    "job_category": "customer_support",
+    "assesses": ["motivation", "coherence", "fluency"],
+    "good_answer_signals": ["genuine interest", "people-oriented", "specific reason"],
+    "follow_up_hint": "Ask what they enjoy about helping people"
+  },
+  {
+    "question_id": "Q011",
+    "question_text": "What do you think makes a good customer support person?",
+    "type": "motivation",
+    "difficulty": "easy",
+    "job_category": "customer_support",
+    "assesses": ["coherence", "empathy"],
+    "good_answer_signals": ["mentions patience", "mentions listening", "mentions problem-solving"],
+    "follow_up_hint": "Ask which of those qualities they have"
+  },
+  {
+    "question_id": "Q012",
+    "question_text": "Have you ever had to explain something complicated to someone? How did you do it?",
+    "type": "behavioral",
+    "difficulty": "medium",
+    "job_category": "customer_support",
+    "assesses": ["communication", "coherence", "fluency"],
+    "good_answer_signals": ["simplifies complex idea", "checks understanding", "patient approach"],
+    "follow_up_hint": "Ask what they did when the person didn't understand the first time"
+  },
+  {
+    "question_id": "Q013",
+    "question_text": "A customer calls and they're very angry about a late delivery. What would you do?",
+    "type": "situational",
+    "difficulty": "medium",
+    "job_category": "customer_support",
+    "assesses": ["empathy", "coherence", "thinking"],
+    "good_answer_signals": ["listen first", "apologize", "find solution", "stay calm"],
+    "follow_up_hint": "Ask what they would do if they couldn't solve the problem themselves"
+  },
+  {
+    "question_id": "Q014",
+    "question_text": "Imagine a customer asks you a question and you don't know the answer. What would you do?",
+    "type": "situational",
+    "difficulty": "medium",
+    "job_category": "customer_support",
+    "assesses": ["honesty", "problem_solving", "coherence"],
+    "good_answer_signals": ["admits not knowing", "offers to find out", "follows up"],
+    "follow_up_hint": "Ask how they would keep the customer happy while finding the answer"
+  },
+  {
+    "question_id": "Q015",
+    "question_text": "Tell me about a time you had to deal with a difficult person. How did you handle it?",
+    "type": "behavioral",
+    "difficulty": "medium",
+    "job_category": "customer_support",
+    "assesses": ["patience", "empathy", "coherence"],
+    "good_answer_signals": ["stays calm", "shows empathy", "resolves situation"],
+    "follow_up_hint": "Ask what they learned from that experience"
+  },
+  {
+    "question_id": "Q016",
+    "question_text": "A customer wants a refund but your company policy doesn't allow it. How would you handle this?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "customer_support",
+    "assesses": ["problem_solving", "communication", "empathy"],
+    "good_answer_signals": ["empathizes", "explains policy kindly", "offers alternatives"],
+    "follow_up_hint": "Ask what they would do if the customer got more upset"
+  },
+  {
+    "question_id": "Q017",
+    "question_text": "You're handling multiple customer calls and one customer has been waiting a long time. What do you do?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "customer_support",
+    "assesses": ["prioritization", "communication", "empathy"],
+    "good_answer_signals": ["acknowledges wait", "apologizes", "prioritizes", "manages time"],
+    "follow_up_hint": "Ask how they decide which customer to help first"
+  },
+  {
+    "question_id": "Q020",
+    "question_text": "Why are you interested in data entry work?",
+    "type": "motivation",
+    "difficulty": "easy",
+    "job_category": "data_entry",
+    "assesses": ["motivation", "coherence"],
+    "good_answer_signals": ["mentions accuracy", "mentions computers", "practical reason"],
+    "follow_up_hint": "Ask about their experience with computers"
+  },
+  {
+    "question_id": "Q021",
+    "question_text": "How comfortable are you using a computer? What do you usually do on it?",
+    "type": "intro",
+    "difficulty": "easy",
+    "job_category": "data_entry",
+    "assesses": ["fluency", "range"],
+    "good_answer_signals": ["mentions specific software", "regular usage", "comfortable"],
+    "follow_up_hint": "Ask if they've used Excel or Google Sheets"
+  },
+  {
+    "question_id": "Q022",
+    "question_text": "When you're doing a task that requires attention to detail, how do you make sure you don't make mistakes?",
+    "type": "behavioral",
+    "difficulty": "medium",
+    "job_category": "data_entry",
+    "assesses": ["accuracy", "thinking", "coherence"],
+    "good_answer_signals": ["double-checks work", "systematic approach", "takes time"],
+    "follow_up_hint": "Ask for a specific example"
+  },
+  {
+    "question_id": "Q023",
+    "question_text": "You're given a list of 100 names to enter into a system and you notice some names look wrong. What do you do?",
+    "type": "situational",
+    "difficulty": "medium",
+    "job_category": "data_entry",
+    "assesses": ["accuracy", "problem_solving", "communication"],
+    "good_answer_signals": ["flags errors", "asks supervisor", "doesn't guess"],
+    "follow_up_hint": "Ask what they would do if they couldn't reach their supervisor"
+  },
+  {
+    "question_id": "Q024",
+    "question_text": "How do you stay focused when doing the same task for a long time?",
+    "type": "self_awareness",
+    "difficulty": "easy",
+    "job_category": "data_entry",
+    "assesses": ["self_awareness", "patience"],
+    "good_answer_signals": ["has strategies", "takes breaks", "stays organized"],
+    "follow_up_hint": "Ask what they do when they start feeling bored"
+  },
+  {
+    "question_id": "Q025",
+    "question_text": "If you found an error in data that was already submitted, what would you do?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "data_entry",
+    "assesses": ["honesty", "problem_solving", "communication"],
+    "good_answer_signals": ["reports error", "takes responsibility", "suggests fix"],
+    "follow_up_hint": "Ask how they would prevent similar errors in the future"
+  },
+  {
+    "question_id": "Q030",
+    "question_text": "Why are you interested in delivery or logistics work?",
+    "type": "motivation",
+    "difficulty": "easy",
+    "job_category": "delivery",
+    "assesses": ["motivation", "coherence"],
+    "good_answer_signals": ["likes being active", "knows local area", "practical reason"],
+    "follow_up_hint": "Ask if they know their local area well"
+  },
+  {
+    "question_id": "Q031",
+    "question_text": "If someone asks you for directions to a place you know, how would you explain it?",
+    "type": "situational",
+    "difficulty": "easy",
+    "job_category": "delivery",
+    "assesses": ["communication", "clarity", "coherence"],
+    "good_answer_signals": ["clear steps", "uses landmarks", "checks understanding"],
+    "follow_up_hint": "Ask them to give directions to a nearby landmark"
+  },
+  {
+    "question_id": "Q032",
+    "question_text": "You're delivering a package and the customer isn't home. What would you do?",
+    "type": "situational",
+    "difficulty": "medium",
+    "job_category": "delivery",
+    "assesses": ["problem_solving", "communication"],
+    "good_answer_signals": ["calls customer", "leaves message", "follows protocol", "tries neighbor"],
+    "follow_up_hint": "Ask what they would do if the customer's phone was also unreachable"
+  },
+  {
+    "question_id": "Q033",
+    "question_text": "How do you handle it when you're running late for something important?",
+    "type": "behavioral",
+    "difficulty": "medium",
+    "job_category": "delivery",
+    "assesses": ["communication", "problem_solving", "honesty"],
+    "good_answer_signals": ["communicates delay", "takes action", "honest about situation"],
+    "follow_up_hint": "Ask what they do to avoid being late in the first place"
+  },
+  {
+    "question_id": "Q034",
+    "question_text": "A customer complains that their delivery is damaged. How would you handle it?",
+    "type": "situational",
+    "difficulty": "medium",
+    "job_category": "delivery",
+    "assesses": ["empathy", "problem_solving", "communication"],
+    "good_answer_signals": ["apologizes", "documents damage", "offers solution", "reports to supervisor"],
+    "follow_up_hint": "Ask how they would make the customer feel better about the situation"
+  },
+  {
+    "question_id": "Q040",
+    "question_text": "What kind of job are you most interested in, and why?",
+    "type": "motivation",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["motivation", "coherence", "self_awareness"],
+    "good_answer_signals": ["clear preference", "gives reason", "connects to skills"],
+    "follow_up_hint": "Ask what skills they think they need for that job"
+  },
+  {
+    "question_id": "Q041",
+    "question_text": "Tell me about a time you learned something new. How did you learn it?",
+    "type": "behavioral",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["coherence", "fluency", "self_awareness"],
+    "good_answer_signals": ["specific example", "describes process", "shows curiosity"],
+    "follow_up_hint": "Ask what made it easy or hard to learn"
+  },
+  {
+    "question_id": "Q042",
+    "question_text": "If you could change one thing about yourself to be better at work, what would it be?",
+    "type": "self_awareness",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["self_awareness", "honesty", "coherence"],
+    "good_answer_signals": ["honest reflection", "specific area", "growth mindset"],
+    "follow_up_hint": "Ask what steps they could take to improve"
+  },
+  {
+    "question_id": "Q043",
+    "question_text": "Describe a situation where you had to work with someone you didn't get along with.",
+    "type": "behavioral",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["empathy", "patience", "coherence"],
+    "good_answer_signals": ["stays professional", "finds common ground", "focuses on work"],
+    "follow_up_hint": "Ask what they learned about working with different people"
+  },
+  {
+    "question_id": "Q044",
+    "question_text": "Your manager gives you a task you've never done before. How do you approach it?",
+    "type": "situational",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["problem_solving", "initiative", "communication"],
+    "good_answer_signals": ["asks questions", "researches", "tries first", "asks for help if stuck"],
+    "follow_up_hint": "Ask what they would do if they made a mistake while trying"
+  },
+  {
+    "question_id": "Q045",
+    "question_text": "What does being professional mean to you?",
+    "type": "self_awareness",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["self_awareness", "coherence", "range"],
+    "good_answer_signals": ["mentions punctuality", "mentions respect", "mentions responsibility"],
+    "follow_up_hint": "Ask for an example of when they showed professionalism"
+  },
+  {
+    "question_id": "Q046",
+    "question_text": "You notice a coworker is struggling with their work. What do you do?",
+    "type": "situational",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["empathy", "teamwork", "communication"],
+    "good_answer_signals": ["offers help", "asks if they need support", "doesn't judge"],
+    "follow_up_hint": "Ask how they balance helping others with their own work"
+  },
+  {
+    "question_id": "Q047",
+    "question_text": "Tell me about a goal you set for yourself and how you worked towards it.",
+    "type": "behavioral",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["coherence", "motivation", "self_awareness"],
+    "good_answer_signals": ["specific goal", "describes steps", "mentions outcome"],
+    "follow_up_hint": "Ask what they would do differently if they could try again"
+  },
+  {
+    "question_id": "Q048",
+    "question_text": "How do you handle criticism or feedback from someone?",
+    "type": "self_awareness",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["self_awareness", "emotional_intelligence", "coherence"],
+    "good_answer_signals": ["listens openly", "doesn't get defensive", "uses feedback to improve"],
+    "follow_up_hint": "Ask for a specific time they received feedback and what they did with it"
+  },
+  {
+    "question_id": "Q050",
+    "question_text": "What motivates you to do your best work?",
+    "type": "motivation",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["motivation", "self_awareness", "fluency"],
+    "good_answer_signals": ["specific motivator", "connects to values", "genuine answer"],
+    "follow_up_hint": "Ask for an example of when they felt really motivated"
+  },
+  {
+    "question_id": "Q051",
+    "question_text": "If you had to choose between finishing a task quickly or doing it perfectly, which would you choose and why?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "general",
+    "assesses": ["thinking", "self_awareness", "coherence"],
+    "good_answer_signals": ["considers context", "balanced answer", "explains reasoning"],
+    "follow_up_hint": "Ask how they would decide in a real work situation"
+  },
+  {
+    "question_id": "Q052",
+    "question_text": "You're working on something important and your phone keeps ringing with personal calls. What do you do?",
+    "type": "situational",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["professionalism", "self_awareness"],
+    "good_answer_signals": ["prioritizes work", "silences phone", "handles after work"],
+    "follow_up_hint": "Ask what they would do if it was an emergency call"
+  },
+  {
+    "question_id": "Q053",
+    "question_text": "What would you do if you disagreed with your manager's instructions?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "general",
+    "assesses": ["communication", "professionalism", "thinking"],
+    "good_answer_signals": ["respectful disagreement", "asks for reasoning", "follows through"],
+    "follow_up_hint": "Ask how they would express their concern without being disrespectful"
+  },
+  {
+    "question_id": "Q060",
+    "question_text": "A customer is speaking very fast and you can't understand them. What do you do?",
+    "type": "situational",
+    "difficulty": "easy",
+    "job_category": "customer_support",
+    "assesses": ["communication", "patience"],
+    "good_answer_signals": ["asks to repeat", "stays polite", "confirms understanding"],
+    "follow_up_hint": "Ask how they would ask without making the customer feel bad"
+  },
+  {
+    "question_id": "Q061",
+    "question_text": "What would you do if a customer started using rude language with you?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "customer_support",
+    "assesses": ["patience", "emotional_intelligence", "professionalism"],
+    "good_answer_signals": ["stays calm", "doesn't take it personally", "de-escalates", "sets boundaries politely"],
+    "follow_up_hint": "Ask how they keep themselves calm in such situations"
+  },
+  {
+    "question_id": "Q062",
+    "question_text": "Why do you think listening is important in customer support?",
+    "type": "motivation",
+    "difficulty": "medium",
+    "job_category": "customer_support",
+    "assesses": ["empathy", "coherence", "thinking"],
+    "good_answer_signals": ["understands customer needs", "prevents misunderstanding", "builds trust"],
+    "follow_up_hint": "Ask for an example of when good listening helped them"
+  },
+  {
+    "question_id": "Q063",
+    "question_text": "How would you handle a situation where two customers need your help at the same time?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "customer_support",
+    "assesses": ["prioritization", "communication", "problem_solving"],
+    "good_answer_signals": ["acknowledges both", "prioritizes urgency", "communicates wait time"],
+    "follow_up_hint": "Ask how they decide who to help first"
+  },
+  {
+    "question_id": "Q070",
+    "question_text": "Do you have experience typing or using a keyboard? How fast can you type?",
+    "type": "intro",
+    "difficulty": "easy",
+    "job_category": "data_entry",
+    "assesses": ["fluency", "honesty"],
+    "good_answer_signals": ["honest assessment", "mentions practice", "willing to improve"],
+    "follow_up_hint": "Ask if they've ever used typing practice tools"
+  },
+  {
+    "question_id": "Q071",
+    "question_text": "You're entering data and you realize you've been making the same mistake for the last 20 entries. What do you do?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "data_entry",
+    "assesses": ["honesty", "problem_solving", "accuracy"],
+    "good_answer_signals": ["reports immediately", "fixes errors", "creates prevention plan"],
+    "follow_up_hint": "Ask how they would prevent this from happening again"
+  },
+  {
+    "question_id": "Q072",
+    "question_text": "What do you think is more important in data entry \u2014 speed or accuracy? Why?",
+    "type": "self_awareness",
+    "difficulty": "medium",
+    "job_category": "data_entry",
+    "assesses": ["thinking", "self_awareness", "coherence"],
+    "good_answer_signals": ["chooses accuracy", "explains reasoning", "understands consequences of errors"],
+    "follow_up_hint": "Ask how they balance both in practice"
+  },
+  {
+    "question_id": "Q080",
+    "question_text": "How do you find your way around a new area? Do you use maps or ask people?",
+    "type": "intro",
+    "difficulty": "easy",
+    "job_category": "delivery",
+    "assesses": ["fluency", "problem_solving"],
+    "good_answer_signals": ["uses technology", "asks locals", "adaptable"],
+    "follow_up_hint": "Ask about a time they got lost and how they handled it"
+  },
+  {
+    "question_id": "Q081",
+    "question_text": "You have 10 deliveries to make today and it starts raining heavily. What do you do?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "delivery",
+    "assesses": ["problem_solving", "adaptability", "communication"],
+    "good_answer_signals": ["protects packages", "adjusts route", "communicates delays", "stays safe"],
+    "follow_up_hint": "Ask how they would communicate with customers about the delay"
+  },
+  {
+    "question_id": "Q082",
+    "question_text": "A customer gives you wrong directions and you end up at the wrong place. What do you do?",
+    "type": "situational",
+    "difficulty": "medium",
+    "job_category": "delivery",
+    "assesses": ["patience", "communication", "problem_solving"],
+    "good_answer_signals": ["stays calm", "calls customer", "uses map", "doesn't blame"],
+    "follow_up_hint": "Ask how they would handle it if the customer got frustrated"
+  },
+  {
+    "question_id": "Q090",
+    "question_text": "What do you think is the most important quality for any job?",
+    "type": "self_awareness",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["self_awareness", "coherence", "thinking"],
+    "good_answer_signals": ["thoughtful answer", "gives reason", "connects to experience"],
+    "follow_up_hint": "Ask why they chose that quality over others"
+  },
+  {
+    "question_id": "Q091",
+    "question_text": "Where do you see yourself in two years?",
+    "type": "motivation",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["motivation", "coherence", "thinking"],
+    "good_answer_signals": ["has goals", "realistic", "shows ambition"],
+    "follow_up_hint": "Ask what steps they plan to take to get there"
+  },
+  {
+    "question_id": "Q092",
+    "question_text": "If you could learn any new skill for free, what would you choose and why?",
+    "type": "self_awareness",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["self_awareness", "motivation", "fluency"],
+    "good_answer_signals": ["specific skill", "clear reason", "connects to goals"],
+    "follow_up_hint": "Ask how that skill would help them in their career"
+  },
+  {
+    "question_id": "Q093",
+    "question_text": "Tell me about a time you made a mistake at work or school. What happened and what did you learn?",
+    "type": "behavioral",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["honesty", "self_awareness", "coherence"],
+    "good_answer_signals": ["admits mistake", "explains what happened", "shares lesson learned"],
+    "follow_up_hint": "Ask what they would do differently now"
+  },
+  {
+    "question_id": "Q094",
+    "question_text": "How do you stay organized when you have many things to do?",
+    "type": "self_awareness",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["organization", "self_awareness", "coherence"],
+    "good_answer_signals": ["has a system", "prioritizes", "uses tools or lists"],
+    "follow_up_hint": "Ask what they do when they feel overwhelmed"
+  },
+  {
+    "question_id": "Q095",
+    "question_text": "What would your friends or family say is your best quality?",
+    "type": "self_awareness",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["self_awareness", "fluency", "confidence"],
+    "good_answer_signals": ["specific quality", "gives example", "genuine answer"],
+    "follow_up_hint": "Ask if they agree with what others say about them"
+  },
+  {
+    "question_id": "Q096",
+    "question_text": "You're given a deadline that you think is too tight. What do you do?",
+    "type": "situational",
+    "difficulty": "hard",
+    "job_category": "general",
+    "assesses": ["communication", "problem_solving", "professionalism"],
+    "good_answer_signals": ["communicates concern", "proposes alternative", "tries their best"],
+    "follow_up_hint": "Ask how they would communicate this to their manager"
+  },
+  {
+    "question_id": "Q097",
+    "question_text": "What does teamwork mean to you?",
+    "type": "motivation",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["teamwork", "coherence", "self_awareness"],
+    "good_answer_signals": ["mentions collaboration", "mentions respect", "gives example"],
+    "follow_up_hint": "Ask for a time they worked well in a team"
+  },
+  {
+    "question_id": "Q098",
+    "question_text": "How do you handle stress or pressure?",
+    "type": "self_awareness",
+    "difficulty": "medium",
+    "job_category": "general",
+    "assesses": ["emotional_intelligence", "self_awareness", "coherence"],
+    "good_answer_signals": ["has coping strategies", "stays calm", "specific techniques"],
+    "follow_up_hint": "Ask for a specific stressful situation and how they handled it"
+  },
+  {
+    "question_id": "Q099",
+    "question_text": "Is there anything else you'd like to tell me about yourself that we haven't covered?",
+    "type": "intro",
+    "difficulty": "easy",
+    "job_category": "general",
+    "assesses": ["fluency", "confidence"],
+    "good_answer_signals": ["shares additional info", "asks questions", "shows enthusiasm"],
+    "follow_up_hint": "Thank them for sharing and wrap up positively"
+  }
+]

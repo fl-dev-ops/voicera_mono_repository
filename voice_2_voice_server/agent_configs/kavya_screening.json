@@ -1,0 +1,44 @@
+{
+  "_reference_only": "This file is for REFERENCE ONLY. It is NOT loaded or referenced by any code. The actual agent config lives in MongoDB (AgentConfig collection) and is fetched at runtime via the backend API. Use this as a template when creating the Kavya screening agent in the database.",
+  "agent_type": "kavya_screening",
+  "agent_id": "kavya-screening-v1",
+  "org_id": "<org_id>",
+  "agent_category": "screening",
+  "greeting_message": "Hi, I'm Kavya. I'm here to help you find a job that's right for you. I'll ask a few simple questions — just answer in whatever way is comfortable. What's your name?",
+  "agent_config": {
+    "system_prompt": "You are Kavya, a warm and friendly voice screening agent for job placement. See full system prompt in implementation.md Phase 2.",
+    "greeting_message": "Hi, I'm Kavya. I'm here to help you find a job that's right for you. I'll ask a few simple questions — just answer in whatever way is comfortable. What's your name?",
+    "language": "English",
+    "enable_memory": true,
+    "session_timeout_minutes": 15,
+    "llm_model": {
+      "name": "openai",
+      "args": { "model": "gpt-4o" }
+    },
+    "stt_model": {
+      "name": "deepgram",
+      "language": "English (India)",
+      "args": { "model": "nova-3" }
+    },
+    "tts_model": {
+      "name": "cartesia",
+      "language": "English (India)",
+      "args": {
+        "model": "sonic-2",
+        "voice_id": "<warm-female-indian-english-voice-id>"
+      }
+    },
+    "tools": [
+      "query_question_bank",
+      "query_job_profiles",
+      "score_cefr",
+      "save_screening_result"
+    ],
+    "vad_overrides": {
+      "smart_turn_stop_secs": 2.0,
+      "smart_turn_max_duration_secs": 15.0,
+      "user_turn_stop_timeout": 3.0,
+      "vad_stop_secs": 0.8
+    }
+  }
+}

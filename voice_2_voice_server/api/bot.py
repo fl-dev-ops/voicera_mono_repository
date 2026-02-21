@@ -94,6 +94,8 @@ async def run_bot(
     agent_config: dict,
     audiobuffer: AudioBufferProcessor,
     call_data: dict,
+    call_sid: str | None = None,
+    agent_type: str | None = None,
     user_phone: str | None = None,
     handle_sigint: bool = False,
     vad_analyzer: SileroVADAnalyzer = None,
@@ -105,6 +107,8 @@ async def run_bot(
         agent_config: Agent configuration dictionary
         audiobuffer: Audio buffer processor for recording
         call_data: Shared dict for accumulating transcript lines
+        call_sid: Call identifier (meeting_id) for tool context
+        agent_type: Agent type identifier for tool context
         handle_sigint: Whether to handle SIGINT for graceful shutdown
         vad_analyzer: SileroVADAnalyzer instance (now passed to LLMUserAggregatorParams)
     """
@@ -182,17 +186,55 @@ async def run_bot(
         if memory_block:
             context_messages.append({"role": "system", "content": memory_block})
 
-        context = LLMContext(context_messages)
+        # --- Tool calling support (agent-config-driven) ---
+        tools_config = agent_config.get("tools")
+        tools_schema = None
+        if tools_config:
+            from .tool_handlers import build_tools_schema, register_tool_handlers
+
+            tools_schema = build_tools_schema(tools_config)
+            # Pass call context to tool handlers (call_sid, agent_type, user_phone)
+            call_context = {
+                "call_sid": call_sid,
+                "agent_type": agent_type,
+                "user_phone": user_phone,
+            }
+            register_tool_handlers(llm, tools_config, agent_config, call_context)
+            logger.info(
+                f"Tool calling ENABLED: {len(tools_config)} tools registered "
+                f"({', '.join(tools_config)})"
+            )
+
+        context = LLMContext(
+            context_messages,
+            tools=tools_schema,
+            tool_choice="auto" if tools_schema else None,
+        )
 
         # Read Smart Turn config from env vars (tuneable without rebuild)
         # stop_secs: silence fallback — if ML model keeps saying "incomplete",
         # force COMPLETE after this many seconds of silence. Lower = more responsive
         # but may cut off mid-thought. Default 1.0s is good for telephony.
         # (Pipecat default is 3.0 but that's too long for phone calls with background noise)
-        smart_turn_stop_secs = float(os.getenv("SMART_TURN_STOP_SECS", "1.0"))
-        smart_turn_pre_speech_ms = float(os.getenv("SMART_TURN_PRE_SPEECH_MS", "500.0"))
+        # Per-agent VAD/turn overrides from agent_config (falls back to env vars)
+        vad_overrides = agent_config.get("vad_overrides", {})
+
+        smart_turn_stop_secs = float(
+            vad_overrides.get(
+                "smart_turn_stop_secs", os.getenv("SMART_TURN_STOP_SECS", "1.0")
+            )
+        )
+        smart_turn_pre_speech_ms = float(
+            vad_overrides.get(
+                "smart_turn_pre_speech_ms",
+                os.getenv("SMART_TURN_PRE_SPEECH_MS", "500.0"),
+            )
+        )
         smart_turn_max_duration = float(
-            os.getenv("SMART_TURN_MAX_DURATION_SECS", "8.0")
+            vad_overrides.get(
+                "smart_turn_max_duration_secs",
+                os.getenv("SMART_TURN_MAX_DURATION_SECS", "8.0"),
+            )
         )
         enable_smart_turn = os.getenv("ENABLE_SMART_TURN", "true").lower() in (
             "true",
@@ -248,7 +290,12 @@ async def run_bot(
         # transcription triggers a turn-end. Default is 5.0s which is too slow
         # for telephony — short utterances like "Yes" may not give Smart Turn
         # enough audio to analyze, so this timeout is the only thing that fires.
-        user_turn_stop_timeout = float(os.getenv("USER_TURN_STOP_TIMEOUT", "1.5"))
+        user_turn_stop_timeout = float(
+            vad_overrides.get(
+                "user_turn_stop_timeout",
+                os.getenv("USER_TURN_STOP_TIMEOUT", "1.5"),
+            )
+        )
 
         # Mute strategy: suppress all user input (audio, VAD, transcriptions)
         # until the bot finishes its first speech (the greeting).
@@ -434,7 +481,12 @@ async def bot(
     vad_confidence = float(os.getenv("VAD_CONFIDENCE", "0.7"))
     vad_min_volume = float(os.getenv("VAD_MIN_VOLUME", "0.6"))
     vad_start_secs = float(os.getenv("VAD_START_SECS", "0.2"))
-    vad_stop_secs = float(os.getenv("VAD_STOP_SECS", default_stop_secs))
+    vad_overrides = agent_config.get("vad_overrides", {})
+    vad_stop_secs = float(
+        vad_overrides.get(
+            "vad_stop_secs", os.getenv("VAD_STOP_SECS", default_stop_secs)
+        )
+    )
 
     logger.info(
         f"VAD config: confidence={vad_confidence}, min_volume={vad_min_volume}, "
@@ -513,6 +565,8 @@ async def bot(
             agent_config,
             audiobuffer,
             call_data,
+            call_sid=call_sid,
+            agent_type=agent_type,
             user_phone=user_phone,
             handle_sigint=False,
             vad_analyzer=vad_analyzer,

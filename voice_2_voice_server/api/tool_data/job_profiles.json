@@ -1,0 +1,182 @@
+[
+  {
+    "job_id": "JOB001",
+    "title": "Customer Support Executive",
+    "category": "customer_support",
+    "min_english_level": "B1",
+    "key_skills": ["communication", "patience", "empathy", "active listening"],
+    "typical_tasks": [
+      "Handle inbound customer calls",
+      "Resolve complaints and escalate when needed",
+      "Update CRM with call notes",
+      "Follow up on open tickets"
+    ],
+    "salary_range": "15K-22K",
+    "screening_focus": ["empathy", "clarity", "handling pressure", "patience"]
+  },
+  {
+    "job_id": "JOB002",
+    "title": "Voice Process Associate",
+    "category": "customer_support",
+    "min_english_level": "B1",
+    "key_skills": ["verbal communication", "pronunciation", "problem solving", "multitasking"],
+    "typical_tasks": [
+      "Make and receive calls for service queries",
+      "Explain products and services clearly",
+      "Process orders and returns over phone",
+      "Maintain call quality standards"
+    ],
+    "salary_range": "16K-24K",
+    "screening_focus": ["pronunciation", "fluency", "confidence on phone", "clarity"]
+  },
+  {
+    "job_id": "JOB003",
+    "title": "Chat Support Agent",
+    "category": "customer_support",
+    "min_english_level": "B1",
+    "key_skills": ["written communication", "typing speed", "multitasking", "empathy"],
+    "typical_tasks": [
+      "Respond to customer queries via live chat",
+      "Handle multiple chat conversations simultaneously",
+      "Provide product information and troubleshooting",
+      "Escalate complex issues to senior agents"
+    ],
+    "salary_range": "14K-20K",
+    "screening_focus": ["written clarity", "grammar", "response speed", "empathy"]
+  },
+  {
+    "job_id": "JOB004",
+    "title": "Technical Support — Level 1",
+    "category": "customer_support",
+    "min_english_level": "B2",
+    "key_skills": ["technical aptitude", "troubleshooting", "communication", "patience"],
+    "typical_tasks": [
+      "Diagnose basic technical issues over phone or chat",
+      "Walk customers through step-by-step solutions",
+      "Log issues in ticketing system",
+      "Escalate unresolved issues to Level 2"
+    ],
+    "salary_range": "18K-28K",
+    "screening_focus": ["explaining technical concepts simply", "structured thinking", "patience", "clarity"]
+  },
+  {
+    "job_id": "JOB005",
+    "title": "Data Entry Operator",
+    "category": "data_entry",
+    "min_english_level": "A2",
+    "key_skills": ["typing accuracy", "attention to detail", "basic computer skills", "consistency"],
+    "typical_tasks": [
+      "Enter data from forms into computer systems",
+      "Verify and correct data entries",
+      "Maintain organized digital records",
+      "Generate basic reports from entered data"
+    ],
+    "salary_range": "12K-16K",
+    "screening_focus": ["attention to detail", "following instructions", "consistency", "basic English reading"]
+  },
+  {
+    "job_id": "JOB006",
+    "title": "Back Office Executive",
+    "category": "data_entry",
+    "min_english_level": "B1",
+    "key_skills": ["data management", "Excel proficiency", "email communication", "organization"],
+    "typical_tasks": [
+      "Process and verify documents",
+      "Manage spreadsheets and databases",
+      "Coordinate with front office teams via email",
+      "Prepare daily and weekly reports"
+    ],
+    "salary_range": "14K-20K",
+    "screening_focus": ["organization", "written communication", "accuracy", "following processes"]
+  },
+  {
+    "job_id": "JOB007",
+    "title": "Content Moderator",
+    "category": "data_entry",
+    "min_english_level": "B1",
+    "key_skills": ["reading comprehension", "judgment", "attention to detail", "emotional resilience"],
+    "typical_tasks": [
+      "Review user-generated content against guidelines",
+      "Flag or remove inappropriate content",
+      "Categorize content by type and severity",
+      "Write brief moderation notes for flagged items"
+    ],
+    "salary_range": "15K-22K",
+    "screening_focus": ["reading comprehension", "judgment", "consistency", "written clarity"]
+  },
+  {
+    "job_id": "JOB008",
+    "title": "Delivery Executive",
+    "category": "delivery",
+    "min_english_level": "A2",
+    "key_skills": ["navigation", "time management", "customer interaction", "physical fitness"],
+    "typical_tasks": [
+      "Pick up and deliver packages to customers",
+      "Navigate using maps and delivery apps",
+      "Collect payments and provide receipts",
+      "Communicate delivery status to customers"
+    ],
+    "salary_range": "12K-18K",
+    "screening_focus": ["basic communication", "reliability", "handling customer interactions", "problem solving on the go"]
+  },
+  {
+    "job_id": "JOB009",
+    "title": "Warehouse Associate",
+    "category": "delivery",
+    "min_english_level": "A2",
+    "key_skills": ["organization", "physical stamina", "teamwork", "basic counting"],
+    "typical_tasks": [
+      "Sort and organize packages by delivery zone",
+      "Load and unload delivery vehicles",
+      "Scan and track packages in warehouse system",
+      "Maintain clean and organized workspace"
+    ],
+    "salary_range": "11K-15K",
+    "screening_focus": ["following instructions", "teamwork", "reliability", "basic communication"]
+  },
+  {
+    "job_id": "JOB010",
+    "title": "Last Mile Coordinator",
+    "category": "delivery",
+    "min_english_level": "B1",
+    "key_skills": ["coordination", "communication", "problem solving", "multitasking"],
+    "typical_tasks": [
+      "Assign deliveries to riders based on zones",
+      "Track delivery progress and resolve delays",
+      "Communicate with customers about delivery timing",
+      "Handle delivery exceptions and returns"
+    ],
+    "salary_range": "16K-24K",
+    "screening_focus": ["coordination", "communication under pressure", "problem solving", "multitasking"]
+  },
+  {
+    "job_id": "JOB011",
+    "title": "General Office Assistant",
+    "category": "general",
+    "min_english_level": "A2",
+    "key_skills": ["basic computer skills", "organization", "communication", "punctuality"],
+    "typical_tasks": [
+      "Assist with filing and document management",
+      "Answer phone calls and take messages",
+      "Help with basic data entry and photocopying",
+      "Support office staff with daily tasks"
+    ],
+    "salary_range": "10K-14K",
+    "screening_focus": ["basic communication", "willingness to learn", "reliability", "following instructions"]
+  },
+  {
+    "job_id": "JOB012",
+    "title": "Receptionist / Front Desk Executive",
+    "category": "general",
+    "min_english_level": "B1",
+    "key_skills": ["communication", "professional demeanor", "multitasking", "basic computer skills"],
+    "typical_tasks": [
+      "Greet and direct visitors",
+      "Answer and route phone calls",
+      "Manage appointment schedules",
+      "Handle incoming and outgoing mail"
+    ],
+    "salary_range": "13K-18K",
+    "screening_focus": ["professional communication", "friendliness", "clarity", "multitasking"]
+  }
+]

@@ -1,17 +1,32 @@
 """
 Main FastAPI application.
 """
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import connect_to_mongo, close_mongo_connection
-from app.routers import users, agents, meetings, campaigns, audience, call_recordings, phone_numbers, vobiz, analytics, integrations, members, memory, evaluation
+from app.routers import (
+    users,
+    agents,
+    meetings,
+    campaigns,
+    audience,
+    call_recordings,
+    phone_numbers,
+    vobiz,
+    analytics,
+    integrations,
+    members,
+    memory,
+    evaluation,
+    screening,
+)
 import logging
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -21,7 +36,7 @@ app = FastAPI(
     version=settings.VERSION,
     description="Voicera Backend API - MongoDB-based backend service",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
 # CORS middleware
@@ -47,6 +62,8 @@ app.include_router(integrations.router, prefix=settings.API_V1_PREFIX)
 app.include_router(members.router, prefix=settings.API_V1_PREFIX)
 app.include_router(memory.router, prefix=settings.API_V1_PREFIX)
 app.include_router(evaluation.router, prefix=settings.API_V1_PREFIX)
+app.include_router(screening.router, prefix=settings.API_V1_PREFIX)
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -56,11 +73,13 @@ async def startup_event():
         connect_to_mongo()
         # Initialize database collections and indexes
         from app.database_init import initialize_database
+
         initialize_database()
         logger.info("Application started successfully")
     except Exception as e:
         logger.error(f"Failed to start application: {e}")
         raise
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -69,24 +88,26 @@ async def shutdown_event():
     close_mongo_connection()
     logger.info("Application shut down successfully")
 
+
 @app.get("/")
 async def root():
     """Root endpoint."""
     return {
         "message": "Voicera Backend API",
         "version": settings.VERSION,
-        "docs": "/docs"
+        "docs": "/docs",
     }
+
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     try:
         from app.database import mongodb
+
         if mongodb.client:
-            mongodb.client.admin.command('ping')
+            mongodb.client.admin.command("ping")
             return {"status": "healthy", "database": "connected"}
         return {"status": "unhealthy", "database": "disconnected"}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
-
