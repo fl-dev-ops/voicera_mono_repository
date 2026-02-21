@@ -51,6 +51,9 @@ jobs:
           platforms: |
             linux/amd64
             linux/arm64
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://api.voicera.foreverlearning.in
+            NEXT_PUBLIC_JOHNAIC_SERVER_URL=https://voice.voicera.foreverlearning.in
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/voicera-frontend:dev
             ${{ secrets.DOCKERHUB_USERNAME }}/voicera-frontend:${{ steps.git.outputs.sha_short }}
