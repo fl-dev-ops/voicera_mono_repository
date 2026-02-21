@@ -1,11 +1,11 @@
-name: Build & Deploy - Voice Server
+name: Build & Deploy - WhatsApp
 
 on:
   push:
     branches: [main]
     paths:
-      - 'voice_2_voice_server/**'
-      - '.github/workflows/voice-server.yml'
+      - 'apps/whatsapp-link-sender/**'
+      - '.github/workflows/whatsapp.yml'
 
 jobs:
   docker:
@@ -32,9 +32,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-voice-server-${{ github.sha }}
+          key: ${{ runner.os }}-buildx-whatsapp-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-buildx-voice-server-
+            ${{ runner.os }}-buildx-whatsapp-
 
       - name: Login to DockerHub
         uses: docker/login-action@v3
@@ -45,15 +45,15 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./voice_2_voice_server
-          file: ./voice_2_voice_server/Dockerfile
+          context: ./apps/whatsapp-link-sender
+          file: ./apps/whatsapp-link-sender/Dockerfile
           push: true
           platforms: |
             linux/amd64
             linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-voice:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-voice:${{ steps.git.outputs.sha_short }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-whatsapp:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-whatsapp:${{ steps.git.outputs.sha_short }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
 
