@@ -2,7 +2,7 @@ name: Build & Deploy - Backend
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - 'voicera_backend/**'
       - '.github/workflows/backend.yml'
@@ -52,7 +52,7 @@ jobs:
             linux/amd64
             linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-backend:dev
             ${{ secrets.DOCKERHUB_USERNAME }}/voicera-backend:${{ steps.git.outputs.sha_short }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new

@@ -2,7 +2,7 @@ name: Build & Deploy - WhatsApp
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - 'apps/whatsapp-link-sender/**'
       - '.github/workflows/whatsapp.yml'
@@ -52,7 +52,7 @@ jobs:
             linux/amd64
             linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-whatsapp:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-whatsapp:dev
             ${{ secrets.DOCKERHUB_USERNAME }}/voicera-whatsapp:${{ steps.git.outputs.sha_short }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new

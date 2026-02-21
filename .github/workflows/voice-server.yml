@@ -2,7 +2,7 @@ name: Build & Deploy - Voice Server
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - 'voice_2_voice_server/**'
       - '.github/workflows/voice-server.yml'
@@ -52,7 +52,7 @@ jobs:
             linux/amd64
             linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-voice:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/voicera-voice:dev
             ${{ secrets.DOCKERHUB_USERNAME }}/voicera-voice:${{ steps.git.outputs.sha_short }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
