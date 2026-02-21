@@ -10,9 +10,9 @@ Design:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -76,14 +76,10 @@ def _stable_id(user_phone: str, text: str) -> str:
     """Deterministic point ID (UUID) from phone + text to avoid duplicates.
 
     Qdrant only accepts UUIDs or unsigned integers as point IDs.
-    We take the first 128 bits of a SHA-256 hash and format as UUID v4-style.
+    We derive a UUID v5 (SHA-1 based, deterministic) using a fixed namespace.
     """
-    h = hashlib.sha256()
-    h.update(user_phone.encode("utf-8"))
-    h.update(b"\n")
-    h.update(text.encode("utf-8"))
-    hex_str = h.hexdigest()[:32]  # first 128 bits
-    return f"{hex_str[:8]}-{hex_str[8:12]}-{hex_str[12:16]}-{hex_str[16:20]}-{hex_str[20:32]}"
+    namespace = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+    return str(uuid.uuid5(namespace, f"{user_phone}\n{text}"))
 
 
 # ---------------------------------------------------------------------------
