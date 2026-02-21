@@ -104,13 +104,23 @@ class VoiceraMemoryProcessor(FrameProcessor):
         try:
             messages = frame.messages
 
-            # Find the latest user message and the last agent message before it
+            # Find the latest user message and the last agent message before it.
+            # Pipecat messages may use OpenAI format {"role", "content"} or
+            # Google format {"role", "parts": [{"text": "..."}]}.
             latest_user: Optional[str] = None
             latest_agent: Optional[str] = None
 
             for m in reversed(messages):
                 role = m.get("role")
+                # Extract text from either format
                 content = m.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    # Try Google/Gemini parts format
+                    parts = m.get("parts")
+                    if isinstance(parts, list) and parts:
+                        content = (
+                            parts[0].get("text") if isinstance(parts[0], dict) else None
+                        )
                 if not isinstance(content, str) or not content.strip():
                     continue
                 if role == "user" and latest_user is None:
