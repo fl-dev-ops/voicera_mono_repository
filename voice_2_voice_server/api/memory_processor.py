@@ -141,6 +141,9 @@ class VoiceraMemoryProcessor(FrameProcessor):
             )
 
             if facts:
+                logger.info(
+                    f"Memory retrieval: {len(facts)} facts found for '{latest_user[:50]}'"
+                )
                 block = _format_facts_block(facts)
                 if block:
                     new_messages = _strip_previous_facts(list(messages))
@@ -155,6 +158,7 @@ class VoiceraMemoryProcessor(FrameProcessor):
                 else:
                     await self.push_frame(frame, direction)
             else:
+                logger.debug(f"Memory retrieval: no facts for '{latest_user[:50]}'")
                 # Strip any stale facts block
                 new_messages = _strip_previous_facts(list(messages))
                 if len(new_messages) != len(messages):

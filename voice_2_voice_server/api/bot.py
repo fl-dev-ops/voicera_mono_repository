@@ -186,6 +186,16 @@ async def run_bot(
                             "with what the user says now, prefer what they say now.\n\n"
                             + "\n\n".join(lines)
                         )
+                        logger.info(
+                            f"Memory bootstrap injected: {len(facts)} facts, "
+                            f"{len(summaries)} summaries for {user_phone}"
+                        )
+                    else:
+                        logger.info(
+                            f"Memory bootstrap: no facts/summaries found for {user_phone}"
+                        )
+                else:
+                    logger.info(f"Memory bootstrap: empty response for {user_phone}")
             except Exception as e:
                 logger.warning(f"Memory bootstrap failed (continuing): {e}")
 
@@ -585,12 +595,17 @@ async def bot(
                 # Build transcript WITHOUT system prompt — only user/assistant turns
                 transcript_text = "\n".join(call_data["transcript_lines"])
                 summary_prompt = agent_config.get("summary_prompt")
-                await memory_summarize(
+                result = await memory_summarize(
                     user_phone=user_phone,
                     transcript=transcript_text,
                     call_id=call_sid,
                     summary_prompt=summary_prompt,
                 )
+                if result:
+                    logger.info(
+                        f"Post-call summary: stored={result.get('stored', False)} "
+                        f"for {user_phone} call={call_sid}"
+                    )
             except Exception as e:
                 logger.warning(f"Memory summarize failed (continuing): {e}")
 

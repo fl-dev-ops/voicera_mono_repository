@@ -431,7 +431,13 @@ async def memory_bootstrap(user_phone: str) -> Optional[Dict[str, Any]]:
         async with _get_httpx_client() as client:
             resp = await client.get(api_endpoint, headers=headers)
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            n_facts = len(data.get("facts") or []) if data else 0
+            n_summaries = len(data.get("summaries") or []) if data else 0
+            logger.info(
+                f"Memory bootstrap OK: {n_facts} facts, {n_summaries} summaries for {user_phone}"
+            )
+            return data
     except Exception as e:
         logger.warning(f"Memory bootstrap failed: {e}")
         return None
@@ -453,7 +459,12 @@ async def memory_search_facts(
         async with _get_httpx_client() as client:
             resp = await client.post(api_endpoint, json=payload, headers=headers)
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            n = len(data) if isinstance(data, list) else 0
+            logger.debug(
+                f"Memory fact search: {n} facts found for query='{query[:60]}'"
+            )
+            return data
     except Exception as e:
         logger.warning(f"Memory fact search failed: {e}")
         return None
@@ -485,7 +496,12 @@ async def memory_extract_and_store(
                 api_endpoint, json=payload, headers=headers, timeout=30.0
             )
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            logger.debug(
+                f"Memory extract-and-store: extracted={data.get('facts_extracted', 0)}, "
+                f"stored={data.get('facts_stored', 0)}, skipped={data.get('facts_skipped', 0)}"
+            )
+            return data
     except Exception as e:
         logger.warning(f"Memory extract-and-store failed: {e}")
         return None
@@ -520,7 +536,13 @@ async def memory_summarize(
                 api_endpoint, json=payload, headers=headers, timeout=60.0
             )
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            stored = data.get("stored", False) if data else False
+            summary_preview = (data.get("summary") or "")[:80] if data else ""
+            logger.info(
+                f"Memory summarize OK: stored={stored}, summary='{summary_preview}...'"
+            )
+            return data
     except Exception as e:
         logger.warning(f"Memory summarize failed: {e}")
         return None
