@@ -1,29 +1,29 @@
-"""API module for voice bot server.
+"""API module for LiveKit voice agent server.
 
 This module provides:
-- FastAPI application for handling telephony webhooks
-- Voice bot pipeline implementation
+- FastAPI application for handling health and outbound call endpoints
+- LiveKit agent entrypoint and prewarm functions
 - Service factories for LLM, STT, and TTS providers
 """
 
-from .bot import bot, run_bot
 from .server import app
 from .services import (
-    create_llm_service,
-    create_stt_service,
-    create_tts_service,
+    create_livekit_stt,
+    create_livekit_tts,
+    create_livekit_llm,
     ServiceCreationError,
 )
+from .agent import entrypoint, prewarm
 
 __all__ = [
-    # Bot
-    "bot",
-    "run_bot",
     # Server
     "app",
     # Services
-    "create_llm_service",
-    "create_stt_service",
-    "create_tts_service",
+    "create_livekit_stt",
+    "create_livekit_tts",
+    "create_livekit_llm",
     "ServiceCreationError",
+    # Agent
+    "entrypoint",
+    "prewarm",
 ]

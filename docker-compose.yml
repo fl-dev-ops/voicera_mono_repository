@@ -46,7 +46,7 @@ services:
       minio:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
+        condition: service_started
     volumes:
       - ./voicera_backend:/app
     working_dir: /app
@@ -65,7 +65,7 @@ services:
     networks:
       - voicera_network
     healthcheck:
-      test: ["CMD", "sh", "-lc", "wget -qO- http://localhost:6333/healthz | grep -q true"]
+      test: ["CMD", "curl", "-sf", "http://localhost:6333/healthz"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -124,17 +124,40 @@ services:
       - ./voice_2_voice_server:/app
     working_dir: /app
     environment:
+      # LiveKit
+      - LIVEKIT_URL=${LIVEKIT_URL}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - LIVEKIT_SIP_OUTBOUND_TRUNK_ID=${LIVEKIT_SIP_OUTBOUND_TRUNK_ID}
+      - LIVEKIT_SIP_URI=${LIVEKIT_SIP_URI:-}
+      - DEFAULT_AGENT_ID=${DEFAULT_AGENT_ID:-}
+      # Backend
       - VOICERA_BACKEND_URL=http://backend:8000
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      # Storage
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
       - MINIO_SECURE=false
+      # Vobiz API (used to auto-patch inbound_destination on new trunks)
+      - VOBIZ_AUTH_ID=${VOBIZ_AUTH_ID}
+      - VOBIZ_AUTH_TOKEN=${VOBIZ_AUTH_TOKEN}
+      - VOBIZ_API_BASE=${VOBIZ_API_BASE:-https://api.vobiz.ai/api/v1}
+      # STT / TTS / LLM API keys
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
+      - SARVAM_API_KEY=${SARVAM_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      # Memory
+      - ENABLE_MEMORY_EACH_TURN=${ENABLE_MEMORY_EACH_TURN:-true}
+      - MEMORY_TOP_K=${MEMORY_TOP_K:-5}
+      - ENABLE_SMART_TURN=${ENABLE_SMART_TURN:-true}
     networks:
       - voicera_network
     depends_on:
       - backend
       - minio
+    command: python main.py start
 
   whatsapp_sender:
     build:

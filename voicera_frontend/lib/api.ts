@@ -331,6 +331,9 @@ export interface Agent {
   phone_number?: string
   vobiz_app_id?: string
   vobiz_answer_url?: string
+  livekit_inbound_trunk_id?: string
+  livekit_outbound_trunk_id?: string
+  livekit_dispatch_rule_id?: string
 }
 
 export interface AgentConfig {
@@ -372,8 +375,12 @@ export interface CreateAgentRequest {
   agent_category: string
   agent_config: AgentConfig
   telephony_provider?: string
+  phone_number?: string
   vobiz_app_id?: string
   vobiz_answer_url?: string
+  livekit_inbound_trunk_id?: string
+  livekit_outbound_trunk_id?: string
+  livekit_dispatch_rule_id?: string
 }
 
 export interface Campaign {
@@ -783,12 +790,159 @@ export async function deleteMember(email: string, orgId: string): Promise<{ stat
       org_id: orgId,
     }),
   })
-  
+
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.detail || error.error || "Failed to delete member")
   }
-  
+
+  return response.json()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LiveKit SIP management
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LiveKitSIPInboundTrunkRequest {
+  name?: string
+  /** E.164 phone numbers on this trunk, e.g. ["+918888800000"] */
+  numbers: string[]
+  auth_username?: string
+  auth_password?: string
+  allowed_addresses?: string[]
+  /**
+   * Vobiz sipAddress domain, e.g. "822ede2f-0dbe-4e05-8474-6ec0272be24e.sip.vobiz.ai".
+   * When set, the voice server automatically patches the Vobiz trunk's
+   * inbound_destination to point at this LiveKit SIP ingress.
+   */
+  vobiz_sip_domain?: string
+}
+
+export interface LiveKitSIPOutboundTrunkRequest {
+  name?: string
+  /** Vobiz SIP domain, e.g. "sip.vobiz.com" */
+  address: string
+  /** E.164 caller-ID numbers, e.g. ["+918888800000"] */
+  numbers: string[]
+  auth_username?: string
+  auth_password?: string
+}
+
+export interface LiveKitSIPDispatchRuleRequest {
+  /** The DID/to-number this rule matches (E.164) */
+  phone_number: string
+  /** Agent ID that should handle calls to this number */
+  agent_id: string
+  /** Inbound trunk ID this rule is attached to */
+  trunk_id: string
+  name?: string
+}
+
+export interface LiveKitSIPTrunkResponse {
+  status: string
+  sip_trunk_id: string
+  name: string
+}
+
+export interface LiveKitSIPDispatchRuleResponse {
+  status: string
+  sip_dispatch_rule_id: string
+  name: string
+  agent_id: string
+  phone_number: string
+}
+
+/**
+ * Create a LiveKit SIP inbound trunk (Vobiz → LiveKit).
+ * Call once per Vobiz account. Save the returned sip_trunk_id.
+ */
+export async function createLiveKitInboundTrunk(
+  data: LiveKitSIPInboundTrunkRequest
+): Promise<LiveKitSIPTrunkResponse> {
+  const response = await fetch("/api/livekit/sip/inbound-trunk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || error.error || "Failed to create inbound trunk")
+  }
+  return response.json()
+}
+
+/**
+ * Create a LiveKit SIP outbound trunk (LiveKit → Vobiz).
+ * Call once per Vobiz account. Save the returned sip_trunk_id as
+ * LIVEKIT_SIP_OUTBOUND_TRUNK_ID in the voice server .env.
+ */
+export async function createLiveKitOutboundTrunk(
+  data: LiveKitSIPOutboundTrunkRequest
+): Promise<LiveKitSIPTrunkResponse> {
+  const response = await fetch("/api/livekit/sip/outbound-trunk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || error.error || "Failed to create outbound trunk")
+  }
+  return response.json()
+}
+
+/**
+ * Delete a LiveKit SIP trunk (inbound or outbound).
+ */
+export async function deleteLiveKitTrunk(
+  trunkId: string
+): Promise<{ status: string; deleted: string }> {
+  const response = await fetch(
+    `/api/livekit/sip/trunk/${encodeURIComponent(trunkId)}`,
+    { method: "DELETE" }
+  )
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || error.error || "Failed to delete trunk")
+  }
+  return response.json()
+}
+
+/**
+ * Create a LiveKit SIP dispatch rule mapping a phone number to an agent.
+ * Call this every time a phone number is assigned to an agent.
+ * Save the returned sip_dispatch_rule_id on the agent record.
+ */
+export async function createLiveKitDispatchRule(
+  data: LiveKitSIPDispatchRuleRequest
+): Promise<LiveKitSIPDispatchRuleResponse> {
+  const response = await fetch("/api/livekit/sip/dispatch-rule", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || error.error || "Failed to create dispatch rule")
+  }
+  return response.json()
+}
+
+/**
+ * Delete a LiveKit SIP dispatch rule.
+ * Call this when a phone number is unlinked from an agent.
+ */
+export async function deleteLiveKitDispatchRule(
+  ruleId: string
+): Promise<{ status: string; deleted: string }> {
+  const response = await fetch(
+    `/api/livekit/sip/dispatch-rule/${encodeURIComponent(ruleId)}`,
+    { method: "DELETE" }
+  )
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || error.error || "Failed to delete dispatch rule")
+  }
   return response.json()
 }
 

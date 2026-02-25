@@ -75,6 +75,16 @@ async def fetch_agent_config_from_backend(agent_id: str) -> dict:
         if "greeting_message" in agent_data:
             agent_config["greeting_message"] = agent_data["greeting_message"]
 
+        # Pass through LiveKit SIP fields and phone number from the top-level doc
+        for field in (
+            "phone_number",
+            "livekit_inbound_trunk_id",
+            "livekit_outbound_trunk_id",
+            "livekit_dispatch_rule_id",
+        ):
+            if agent_data.get(field):
+                agent_config[field] = agent_data[field]
+
         logger.info(f"Agent config fetched successfully: {agent_id}")
         return agent_config
 

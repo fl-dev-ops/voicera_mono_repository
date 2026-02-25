@@ -108,27 +108,29 @@ services:
     image: devopsfl/voicera-voice:${TAG:-latest}
     restart: unless-stopped
     environment:
-      - VOBIZ_AUTH_ID=${VOBIZ_AUTH_ID}
-      - VOBIZ_AUTH_TOKEN=${VOBIZ_AUTH_TOKEN}
-      - VOBIZ_API_BASE=https://api.vobiz.ai/api/v1
-      - VOBIZ_CALLER_ID=${VOBIZ_CALLER_ID}
-      - JOHNAIC_SERVER_URL=https://voice.${DOMAIN}
-      - JOHNAIC_WEBSOCKET_URL=wss://voice.${DOMAIN}
+      # LiveKit
+      - LIVEKIT_URL=${LIVEKIT_URL}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - LIVEKIT_SIP_OUTBOUND_TRUNK_ID=${LIVEKIT_SIP_OUTBOUND_TRUNK_ID}
+      - DEFAULT_AGENT_ID=${DEFAULT_AGENT_ID:-}
+      # Backend
       - VOICERA_BACKEND_URL=http://backend:8000
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
-      - ENABLE_MEMORY_EACH_TURN=${ENABLE_MEMORY_EACH_TURN:-true}
-      - MEMORY_TOP_K=${MEMORY_TOP_K:-6}
+      # Storage
       - MINIO_ENDPOINT=voicera-storage:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_SECURE=false
-      # AI Service API Keys
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # STT / TTS / LLM API keys
       - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
-      - CARTESIA_API_KEY=${CARTESIA_API_KEY:-}
-      - SARVAM_API_KEY=${SARVAM_API_KEY:-}
-      - BHASHINI_API_KEY=${BHASHINI_API_KEY:-}
+      - SARVAM_API_KEY=${SARVAM_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      # Memory
+      - ENABLE_MEMORY_EACH_TURN=${ENABLE_MEMORY_EACH_TURN:-true}
+      - MEMORY_TOP_K=${MEMORY_TOP_K:-6}
+      - ENABLE_SMART_TURN=${ENABLE_SMART_TURN:-true}
     networks:
       - web
     deploy:

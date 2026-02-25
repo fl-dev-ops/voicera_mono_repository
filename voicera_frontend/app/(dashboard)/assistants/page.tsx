@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { getCurrentUser, getAgents, createAgent, createVobizApplication, deleteVobizApplication, deleteAgent, unlinkVobizNumber, fetchApiRoute, getIntegrations, type User, type Agent, type CreateAgentRequest, type Integration } from "@/lib/api"
+import { getCurrentUser, getAgents, createAgent, createVobizApplication, deleteVobizApplication, deleteAgent, unlinkVobizNumber, fetchApiRoute, getIntegrations, createLiveKitInboundTrunk, createLiveKitOutboundTrunk, createLiveKitDispatchRule, deleteLiveKitDispatchRule, deleteLiveKitTrunk, type User, type Agent, type CreateAgentRequest, type Integration } from "@/lib/api"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -187,6 +187,15 @@ interface AgentConfig {
   similarityBoost: number
   stability: number
   telephonyProvider: string
+  // LiveKit SIP trunk IDs (set after trunk creation in Step 4)
+  livekitInboundTrunkId: string
+  livekitOutboundTrunkId: string
+  livekitDispatchRuleId: string
+  // Vobiz SIP credentials (used to create trunks — not stored long-term)
+  sipAddress: string       // e.g. "sip.vobiz.com"
+  sipUsername: string
+  sipPassword: string
+  sipPhoneNumber: string   // E.164, e.g. "+918888800000"
   enableMemory: boolean
 }
 
@@ -200,18 +209,25 @@ const defaultConfig: AgentConfig = {
   temperature: 0.2,
   maxTokens: 450,
   language: "Hindi",
-  sttProvider: "ai4bharat",
-  sttModel: "indic-conformer-stt",
+  sttProvider: "deepgram",
+  sttModel: "nova-2",
   keywords: "",
-  ttsProvider: "ai4bharat",
-  ttsModel: "indic-parler-tts",
-  ttsVoice: "Rohit",
-  ttsDescription: "Speaks at a fast pace with a slightly low-pitched voice, captured clearly in a close-sounding environment with excellent recording quality.",
+  ttsProvider: "sarvam",
+  ttsModel: "bulbul:v2",
+  ttsVoice: "anushka",
+  ttsDescription: "",
   bufferSize: 50,
   speedRate: 1,
   similarityBoost: 75,
   stability: 50,
-  telephonyProvider: "Vobiz",
+  telephonyProvider: "LiveKit",
+  livekitInboundTrunkId: "",
+  livekitOutboundTrunkId: "",
+  livekitDispatchRuleId: "",
+  sipAddress: "",
+  sipUsername: "voicera",
+  sipPassword: "voicera$123",
+  sipPhoneNumber: "",
   enableMemory: true,
 }
 
@@ -238,6 +254,14 @@ export default function AssistantsPage() {
   const [selectedAgentForTest, setSelectedAgentForTest] = useState<Agent | null>(null)
   const [showDeleteSuccessToast, setShowDeleteSuccessToast] = useState(false)
   const [integratedProviders, setIntegratedProviders] = useState<Set<string>>(new Set())
+
+  // Derive LiveKit SIP ingress hostname from NEXT_PUBLIC_LIVEKIT_URL
+  // wss://test-app-bj0s4w0v.livekit.cloud → test-app-bj0s4w0v.sip.livekit.cloud
+  const livekitSipIngress = (() => {
+    const url = process.env.NEXT_PUBLIC_LIVEKIT_URL || ""
+    const match = url.match(/wss?:\/\/([^.]+)\.livekit\.cloud/)
+    return match ? `${match[1]}.sip.livekit.cloud` : "your-project.sip.livekit.cloud"
+  })()
 
   // Fetch user data, agents, and integrations on mount
   useEffect(() => {
@@ -454,7 +478,7 @@ export default function AssistantsPage() {
 
   // Handle create new agent
   const handleCreateNew = () => {
-    setConfig({ ...defaultConfig, id: "new", telephonyProvider: "Vobiz" })
+    setConfig({ ...defaultConfig, id: "new", telephonyProvider: "LiveKit" })
     setCreateStep(1)
     setView("create")
   }
@@ -463,7 +487,7 @@ export default function AssistantsPage() {
   const handleBackToList = () => {
     setView("list")
     setCreateStep(1)
-    setConfig({ ...defaultConfig, telephonyProvider: "Vobiz" })
+    setConfig({ ...defaultConfig, telephonyProvider: "LiveKit" })
   }
 
 
@@ -513,13 +537,25 @@ export default function AssistantsPage() {
         }
       }
 
-      // Step 2: Delete Vobiz application if it exists
+      // Step 2: Delete Vobiz application if it exists (only for Vobiz provider)
       if (agent.telephony_provider === "Vobiz" && agent.vobiz_app_id) {
         try {
           await deleteVobizApplication(agent.vobiz_app_id)
         } catch (error) {
           console.error("Failed to delete Vobiz application:", error)
           // Continue with agent deletion even if Vobiz deletion fails
+        }
+      }
+
+      // Step 2b: Delete LiveKit SIP dispatch rule if it exists
+      const dispatchRuleId = agent.livekit_dispatch_rule_id
+        || (agent.agent_config as any)?.livekit_dispatch_rule_id
+      if (agent.telephony_provider === "LiveKit" && dispatchRuleId) {
+        try {
+          await deleteLiveKitDispatchRule(dispatchRuleId)
+        } catch (error) {
+          console.error("Failed to delete LiveKit dispatch rule:", error)
+          // Continue — rule may have already been deleted in the dashboard
         }
       }
 
@@ -560,33 +596,52 @@ export default function AssistantsPage() {
         updated.ttsModel = ""
         updated.ttsVoice = ""
         
-        // Auto-select ai4bharat for non-English languages if available
-        if (newLanguage && newLanguage !== "English (United States)" && newLanguage !== "English (India)") {
-          // Check if ai4bharat STT supports this language
-          const ai4bharatSTT = (sttData.stt.providers as any).ai4bharat
-          if (ai4bharatSTT) {
-            const sttModel = Object.entries(ai4bharatSTT.models).find(([, m]: [string, any]) =>
+        // Auto-select best available STT provider: deepgram → sarvam → ai4bharat
+        if (newLanguage) {
+          const sttPriority = ["deepgram", "sarvam", "ai4bharat"]
+          for (const providerId of sttPriority) {
+            const provider = (sttData.stt.providers as any)[providerId]
+            if (!provider) continue
+            // Find the recommended model first, then any model that supports the language
+            const entries = Object.entries(provider.models) as [string, any][]
+            const recommended = entries.find(([, m]) =>
+              m.recommended && Array.isArray(m.languages) && m.languages.includes(newLanguage)
+            )
+            const fallback = entries.find(([, m]) =>
               Array.isArray(m.languages) && m.languages.includes(newLanguage)
             )
-            if (sttModel) {
-              updated.sttProvider = "ai4bharat"
-              updated.sttModel = sttModel[0]
+            const match = recommended || fallback
+            if (match) {
+              updated.sttProvider = providerId
+              updated.sttModel = match[0]
+              break
             }
           }
-          
-          // Check if ai4bharat TTS supports this language
-          const ai4bharatTTS = (ttsData.tts.providers as any).ai4bharat
-          if (ai4bharatTTS) {
-            const ttsModel = Object.entries(ai4bharatTTS.models).find(([, m]: [string, any]) =>
+        }
+
+        // Auto-select best available TTS provider: sarvam → deepgram → ai4bharat
+        if (newLanguage) {
+          const ttsPriority = ["sarvam", "deepgram", "ai4bharat"]
+          for (const providerId of ttsPriority) {
+            const provider = (ttsData.tts.providers as any)[providerId]
+            if (!provider) continue
+            // Find the recommended model first, then any model that supports the language
+            const entries = Object.entries(provider.models) as [string, any][]
+            const recommended = entries.find(([, m]) =>
+              m.recommended && m.languages && newLanguage in m.languages
+            )
+            const fallback = entries.find(([, m]) =>
               m.languages && newLanguage in m.languages
             )
-            if (ttsModel) {
-              updated.ttsProvider = "ai4bharat"
-              updated.ttsModel = ttsModel[0]
-              const langVoices = (ttsModel[1] as any).languages[newLanguage]?.voices
+            const match = recommended || fallback
+            if (match) {
+              updated.ttsProvider = providerId
+              updated.ttsModel = match[0]
+              const langVoices = (match[1] as any).languages[newLanguage]?.voices
               if (Array.isArray(langVoices) && langVoices.length > 0) {
                 updated.ttsVoice = langVoices[0]
               }
+              break
             }
           }
         }
@@ -672,21 +727,113 @@ export default function AssistantsPage() {
         ttsModel.loudness = config.similarityBoost
       }
 
-      // If Vobiz provider, create Vobiz application first
+      // For Vobiz provider, create a Vobiz application (legacy path)
       let vobizAppId: string | undefined
       let vobizAnswerUrl: string | undefined
-      
+
       if (config.telephonyProvider === "Vobiz") {
         vobizAnswerUrl = `${process.env.NEXT_PUBLIC_JOHNAIC_SERVER_URL}/answer?agent_id=${agentId}`
-        console.log(" answer url", vobizAnswerUrl)
-        
-        // // Create Vobiz application
-         const vobizAppResponse = await createVobizApplication(config.name, vobizAnswerUrl)
+        console.log("Vobiz answer url", vobizAnswerUrl)
+        const vobizAppResponse = await createVobizApplication(config.name, vobizAnswerUrl)
         console.log("vobizAppResponse", vobizAppResponse)
         if (vobizAppResponse.status === "success" && vobizAppResponse.app_id) {
           vobizAppId = vobizAppResponse.app_id
         } else {
           throw new Error(vobizAppResponse.message || "Failed to create Vobiz application")
+        }
+      }
+
+      // LiveKit SIP: if the user filled in SIP credentials, create trunks + dispatch rule
+      let livekitInboundTrunkId = config.livekitInboundTrunkId
+      let livekitOutboundTrunkId = config.livekitOutboundTrunkId
+      let livekitDispatchRuleId = config.livekitDispatchRuleId
+
+      // Helper: extract conflicting trunk ID from LiveKit error messages like:
+      // "Conflicting inbound SIP Trunks: "<new>" and "ST_xxxx", using the same number(s)..."
+      const extractConflictingTrunkId = (message: string): string | null => {
+        const match = message.match(/"(ST_[A-Za-z0-9]+)"/)
+        return match ? match[1] : null
+      }
+
+      if (
+        config.telephonyProvider === "LiveKit" &&
+        config.sipAddress &&
+        config.sipPhoneNumber
+      ) {
+        // Create inbound trunk — auto-delete conflicting trunk and retry once
+        if (!livekitInboundTrunkId) {
+          try {
+            const inboundResult = await createLiveKitInboundTrunk({
+              name: `${config.name} Inbound`,
+              numbers: [config.sipPhoneNumber],
+              auth_username: config.sipUsername || undefined,
+              auth_password: config.sipPassword || undefined,
+              vobiz_sip_domain: config.sipAddress || undefined,
+            })
+            livekitInboundTrunkId = inboundResult.sip_trunk_id
+            updateConfig("livekitInboundTrunkId", livekitInboundTrunkId)
+          } catch (err: any) {
+            const conflictId = extractConflictingTrunkId(err?.message || "")
+            if (conflictId) {
+              console.warn(`Conflicting inbound trunk ${conflictId} — deleting and retrying`)
+              await deleteLiveKitTrunk(conflictId)
+              const inboundResult = await createLiveKitInboundTrunk({
+                name: `${config.name} Inbound`,
+                numbers: [config.sipPhoneNumber],
+                auth_username: config.sipUsername || undefined,
+                auth_password: config.sipPassword || undefined,
+                vobiz_sip_domain: config.sipAddress || undefined,
+              })
+              livekitInboundTrunkId = inboundResult.sip_trunk_id
+              updateConfig("livekitInboundTrunkId", livekitInboundTrunkId)
+            } else {
+              throw err
+            }
+          }
+        }
+
+        // Create outbound trunk — auto-delete conflicting trunk and retry once
+        if (!livekitOutboundTrunkId) {
+          try {
+            const outboundResult = await createLiveKitOutboundTrunk({
+              name: `${config.name} Outbound`,
+              address: config.sipAddress,
+              numbers: [config.sipPhoneNumber],
+              auth_username: config.sipUsername || undefined,
+              auth_password: config.sipPassword || undefined,
+            })
+            livekitOutboundTrunkId = outboundResult.sip_trunk_id
+            updateConfig("livekitOutboundTrunkId", livekitOutboundTrunkId)
+          } catch (err: any) {
+            const conflictId = extractConflictingTrunkId(err?.message || "")
+            if (conflictId) {
+              console.warn(`Conflicting outbound trunk ${conflictId} — deleting and retrying`)
+              await deleteLiveKitTrunk(conflictId)
+              const outboundResult = await createLiveKitOutboundTrunk({
+                name: `${config.name} Outbound`,
+                address: config.sipAddress,
+                numbers: [config.sipPhoneNumber],
+                auth_username: config.sipUsername || undefined,
+                auth_password: config.sipPassword || undefined,
+              })
+              livekitOutboundTrunkId = outboundResult.sip_trunk_id
+              updateConfig("livekitOutboundTrunkId", livekitOutboundTrunkId)
+            } else {
+              throw err
+            }
+          }
+        }
+
+        // Create dispatch rule if not already done
+        if (!livekitDispatchRuleId && livekitInboundTrunkId) {
+          const ruleResult = await createLiveKitDispatchRule({
+            phone_number: config.sipPhoneNumber,
+            agent_id: agentId,
+            trunk_id: livekitInboundTrunkId,
+            name: `${config.name} — ${config.sipPhoneNumber}`,
+          })
+          livekitDispatchRuleId = ruleResult.sip_dispatch_rule_id
+          updateConfig("livekitDispatchRuleId", livekitDispatchRuleId)
         }
       }
 
@@ -709,6 +856,12 @@ export default function AssistantsPage() {
         ...(config.telephonyProvider === "Vobiz" && {
           vobiz_app_id: vobizAppId,
           vobiz_answer_url: vobizAnswerUrl,
+        }),
+        ...(config.telephonyProvider === "LiveKit" && {
+          ...(livekitInboundTrunkId && { livekit_inbound_trunk_id: livekitInboundTrunkId }),
+          ...(livekitOutboundTrunkId && { livekit_outbound_trunk_id: livekitOutboundTrunkId }),
+          ...(livekitDispatchRuleId && { livekit_dispatch_rule_id: livekitDispatchRuleId }),
+          ...(config.sipPhoneNumber && { phone_number: config.sipPhoneNumber }),
         }),
       }
 
@@ -1229,8 +1382,8 @@ export default function AssistantsPage() {
                                 })
                                 .map((provider) => {
                                   const isSupported = supportedSTTProviders.has(provider.id)
-                                  // AI4Bharat is on-prem, always available (no API key needed)
-                                  const isOnPrem = provider.id === "ai4bharat"
+                                  // AI4Bharat is on-prem; Deepgram and Sarvam keys are baked into voice server .env
+                                  const isOnPrem = provider.id === "ai4bharat" || provider.id === "deepgram" || provider.id === "sarvam"
                                   // Check if provider has integration (API key configured)
                                   const isIntegrated = isOnPrem || integratedProviders.has(provider.id) || integratedProviders.has(provider.name.toLowerCase())
                                   // Determine availability status
@@ -1311,8 +1464,8 @@ export default function AssistantsPage() {
                                 })
                                 .map((provider) => {
                                   const isSupported = supportedTTSProviders.has(provider.id)
-                                  // AI4Bharat is on-prem, always available (no API key needed)
-                                  const isOnPrem = provider.id === "ai4bharat"
+                                  // AI4Bharat is on-prem; Deepgram and Sarvam keys are baked into voice server .env
+                                  const isOnPrem = provider.id === "ai4bharat" || provider.id === "deepgram" || provider.id === "sarvam"
                                   // Check if provider has integration (API key configured)
                                   const isIntegrated = isOnPrem || integratedProviders.has(provider.id) || integratedProviders.has(provider.name.toLowerCase())
                                   // Determine availability status
@@ -1546,8 +1699,8 @@ export default function AssistantsPage() {
                   {/* Telephony Provider Selection */}
                   <div className="space-y-3">
                     <label className="text-base font-bold text-slate-900">Select Telephone Provider</label>
-                    <Select 
-                      value={config.telephonyProvider} 
+                    <Select
+                      value={config.telephonyProvider}
                       onValueChange={(v) => updateConfig("telephonyProvider", v)}
                     >
                       <SelectTrigger className="h-12 rounded-lg border-slate-200 bg-white text-base font-medium hover:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all">
@@ -1557,8 +1710,12 @@ export default function AssistantsPage() {
                         </div>
                       </SelectTrigger>
                       <SelectContent className="rounded-lg">
-                        <SelectItem value="Vobiz" className="py-3">
+                        <SelectItem value="LiveKit" className="py-3">
+                          <span className="font-medium">LiveKit SIP</span>
+                        </SelectItem>
+                        <SelectItem disabled value="Vobiz" className="py-3">
                           <span className="font-medium">Vobiz</span>
+                          <span className="ml-2 text-xs text-slate-400">(legacy)</span>
                         </SelectItem>
                         <SelectItem disabled value="Plivo" className="py-3">
                           <span className="font-medium">Plivo</span>
@@ -1569,9 +1726,140 @@ export default function AssistantsPage() {
                       Choose the telephone provider for your agent calls.
                     </p>
                   </div>
+
+                  {/* LiveKit SIP — Vobiz SIP credentials */}
+                  {config.telephonyProvider === "LiveKit" && (
+                    <div className="space-y-6">
+                      {/* Step 0: Set Vobiz Primary URI callout */}
+                      <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 space-y-3">
+                        <p className="text-sm font-semibold text-amber-800">Before you continue — configure both trunks in Vobiz</p>
+
+                        {/* Inbound trunk */}
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">1 · Inbound trunk (Vobiz → LiveKit)</p>
+                          <p className="text-xs text-amber-700">Set the <span className="font-semibold">Primary URI</span> to:</p>
+                          <code className="block text-xs font-mono bg-amber-100 border border-amber-300 rounded px-3 py-2 text-amber-900 select-all">
+                            {livekitSipIngress}:5061
+                          </code>
+                          <p className="text-xs text-amber-700 font-medium">
+                            Transport: <span className="font-semibold">TLS</span> — LiveKit Cloud only accepts encrypted SIP on port 5061. UDP/TCP will be rejected.
+                          </p>
+                          <p className="text-xs text-amber-600">
+                            The <span className="font-semibold">SIP Domain</span> shown in Vobiz (e.g. <span className="font-mono">33aba403.sip.vobiz.ai</span>) is what goes in the &quot;Vobiz SIP Domain&quot; field below.
+                          </p>
+                        </div>
+
+                        <div className="border-t border-amber-200" />
+
+                        {/* Outbound trunk */}
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">2 · Outbound trunk (LiveKit → Vobiz)</p>
+                          <p className="text-xs text-amber-700">Create a separate outbound trunk in Vobiz and add a <span className="font-semibold">Credentials List</span> with:</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-amber-100 border border-amber-300 rounded px-3 py-2">
+                              <p className="text-xs text-amber-600 mb-0.5">Username</p>
+                              <code className="text-xs font-mono text-amber-900 select-all">voicera</code>
+                            </div>
+                            <div className="bg-amber-100 border border-amber-300 rounded px-3 py-2">
+                              <p className="text-xs text-amber-600 mb-0.5">Password</p>
+                              <code className="text-xs font-mono text-amber-900 select-all">voicera$123</code>
+                            </div>
+                          </div>
+                          <p className="text-xs text-amber-600">
+                            Leave the IP Access Control List empty — LiveKit SIP egress IPs are not fixed. Use these same credentials in the SIP Username / Password fields below.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* How it works callout */}
+                      <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 space-y-1">
+                        <p className="text-sm font-semibold text-blue-800">How it works</p>
+                        <p className="text-sm text-blue-700">
+                          Enter your Vobiz SIP trunk credentials below. When you click <span className="font-semibold">Create Agent</span>, we will automatically:
+                        </p>
+                        <ol className="text-sm text-blue-700 list-decimal list-inside space-y-0.5 mt-1">
+                          <li>Register an inbound SIP trunk (Vobiz → LiveKit)</li>
+                          <li>Register an outbound SIP trunk (LiveKit → Vobiz)</li>
+                          <li>Create a dispatch rule routing your phone number to this agent</li>
+                        </ol>
+                        <p className="text-sm text-blue-600 mt-1">
+                          Each inbound call to your number will automatically reach this agent. Outbound calls use the same trunk.
+                        </p>
+                      </div>
+
+                      {/* Phone number */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-800">
+                          Phone Number <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                          value={config.sipPhoneNumber}
+                          onChange={(e) => updateConfig("sipPhoneNumber", e.target.value)}
+                          placeholder="+918071387318"
+                          className="h-11 rounded-lg border-slate-200 font-mono text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                        />
+                        <p className="text-xs text-slate-500">E.164 format — the number your customers will call (from your Vobiz account).</p>
+                      </div>
+
+                      {/* SIP domain */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-800">
+                          Vobiz SIP Domain <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                          value={config.sipAddress}
+                          onChange={(e) => updateConfig("sipAddress", e.target.value)}
+                          placeholder="33aba403.sip.vobiz.ai"
+                          className="h-11 rounded-lg border-slate-200 font-mono text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                        />
+                        <p className="text-xs text-slate-500">The SIP Domain from your Vobiz trunk settings (e.g. 33aba403.sip.vobiz.ai).</p>
+                      </div>
+
+                      {/* SIP credentials */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-sm font-semibold text-slate-800">SIP Username</label>
+                          <Input
+                            value={config.sipUsername}
+                            onChange={(e) => updateConfig("sipUsername", e.target.value)}
+                            placeholder="voicera"
+                            className="h-11 rounded-lg border-slate-200 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-semibold text-slate-800">SIP Password</label>
+                          <Input
+                            type="password"
+                            value={config.sipPassword}
+                            onChange={(e) => updateConfig("sipPassword", e.target.value)}
+                            placeholder="voicera$123"
+                            className="h-11 rounded-lg border-slate-200 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Show trunk IDs if already created */}
+                      {(config.livekitInboundTrunkId || config.livekitOutboundTrunkId || config.livekitDispatchRuleId) && (
+                        <div className="rounded-lg bg-green-50 border border-green-200 p-4 space-y-2">
+                          <p className="text-sm font-semibold text-green-800 flex items-center gap-1">
+                            <CheckCircle2 className="h-4 w-4" /> SIP trunks registered
+                          </p>
+                          {config.livekitInboundTrunkId && (
+                            <p className="text-xs text-green-700 font-mono">Inbound: {config.livekitInboundTrunkId}</p>
+                          )}
+                          {config.livekitOutboundTrunkId && (
+                            <p className="text-xs text-green-700 font-mono">Outbound: {config.livekitOutboundTrunkId}</p>
+                          )}
+                          {config.livekitDispatchRuleId && (
+                            <p className="text-xs text-green-700 font-mono">Dispatch rule: {config.livekitDispatchRuleId}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                <Button 
+                <Button
                   onClick={handleNextStep}
                   disabled={!canProceed()}
                   className="mt-8 h-11 px-6 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-medium gap-2 disabled:bg-slate-200 disabled:text-slate-400 transition-all"
@@ -1650,8 +1938,30 @@ export default function AssistantsPage() {
                     <div>
                       <p className="text-sm font-bold text-slate-900 mb-2">Telephony Provider</p>
                       <p className="text-sm font-medium text-slate-700">
-                        {config.telephonyProvider ? config.telephonyProvider.charAt(0).toUpperCase() + config.telephonyProvider.slice(1) : "—"}
+                        {config.telephonyProvider === "LiveKit" ? "LiveKit SIP" : (config.telephonyProvider ? config.telephonyProvider.charAt(0).toUpperCase() + config.telephonyProvider.slice(1) : "—")}
                       </p>
+                      {config.telephonyProvider === "LiveKit" && (
+                        <div className="mt-1 space-y-0.5">
+                          {config.sipPhoneNumber && (
+                            <p className="text-sm text-slate-500 font-mono">Number: {config.sipPhoneNumber}</p>
+                          )}
+                          {config.sipAddress && (
+                            <p className="text-sm text-slate-500 font-mono">SIP: {config.sipAddress}</p>
+                          )}
+                          {config.livekitInboundTrunkId && (
+                            <p className="text-xs text-slate-400 font-mono">Inbound trunk: {config.livekitInboundTrunkId}</p>
+                          )}
+                          {config.livekitOutboundTrunkId && (
+                            <p className="text-xs text-slate-400 font-mono">Outbound trunk: {config.livekitOutboundTrunkId}</p>
+                          )}
+                          {config.livekitDispatchRuleId && (
+                            <p className="text-xs text-slate-400 font-mono">Dispatch rule: {config.livekitDispatchRuleId}</p>
+                          )}
+                          {!config.sipPhoneNumber && !config.sipAddress && (
+                            <p className="text-sm text-amber-600">No SIP credentials entered — trunks will not be created automatically.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <button onClick={() => setCreateStep(4)} className="text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors">
                       Edit

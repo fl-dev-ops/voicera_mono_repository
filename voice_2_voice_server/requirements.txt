@@ -1,49 +1,28 @@
 # Core
-python-dotenv==1.2.1
-fastapi[all]==0.121.3
-uvicorn==0.40.0
-pydantic==2.12.0
+python-dotenv>=1.2.1
+fastapi[all]>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
 
-# Pipecat AI with all required service extras
-# Upgraded from 0.0.98 to 0.0.101 for:
-#   - Smart Turn v3 (ML-based end-of-turn detection)
-#   - User Turn Strategies (configurable interruption/turn-taking)
-#   - LLMContextAggregatorPair (universal context aggregator)
-#   - Bug fixes for audio timing, transport, and interruption handling
-pipecat-ai[silero,websocket,google,cartesia,openai,deepgram,sarvam,local-smart-turn-v3]==0.0.101
-
-# ML/Audio Processing
-numpy>=1.26.4,<3
-Pillow>=11.1.0,<12
-
-# Protocol/Serialization
-protobuf~=5.29.5
+# LiveKit Agents SDK + plugins
+livekit-agents[silero,turn-detector]>=1.0.0
+livekit-plugins-openai>=1.0.0
+livekit-plugins-deepgram>=1.0.0
+livekit-plugins-google>=1.0.0
+livekit-plugins-sarvam>=0.1.0
+livekit-api>=0.7.0
 
 # HTTP/Async
-aiohttp==3.13.2
-requests==2.32.3
-httpx==0.28.1
+aiohttp>=3.10.0
+requests>=2.32.0
+httpx>=0.27.0
 
 # Logging
-loguru==0.7.3
+loguru>=0.7.0
 
 # Configuration
-pyyaml==6.0.3
+pyyaml>=6.0.0
 
 # Storage
-minio==7.2.20
-boto3==1.42.21
-
-# External Service SDKs (aligned with pipecat-ai 0.0.101 constraints)
-deepgram-sdk~=4.7.0
-google-cloud-texttospeech>=2.33.0,<3
-google-cloud-speech>=2.35.0,<3
-google-genai>=1.57.0,<2
-cartesia~=2.0.3
-sarvamai==0.1.21
-
-# WebSocket for AI4Bharat custom services
-websockets==15.0.1
-
-# Socket.IO for Bhashini
-python-socketio[asyncio_client]==5.11.0
+minio>=7.2.0
+boto3>=1.35.0
