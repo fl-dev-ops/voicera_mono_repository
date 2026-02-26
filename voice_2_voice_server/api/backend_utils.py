@@ -356,7 +356,7 @@ async def submit_call_recording(
         end_time_utc = datetime.utcnow().isoformat()
 
         # Build MinIO object URLs
-        recording_url = f"minio://recordings/{call_sid}.wav"
+        recording_url = f"minio://recordings/calls/{call_sid}.mp3"
         transcript_url = f"minio://transcripts/{call_sid}.txt"
 
         # Read transcript content from MinIO

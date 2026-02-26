@@ -92,8 +92,8 @@ async def start_room_audio_egress(
             s3=s3_upload,
         )
 
-        # Build the egress request for track composite (audio only)
-        request = lk_egress.StartTrackCompositeEgressRequest(
+        # Build the egress request for room composite (audio only)
+        request = lk_egress.RoomCompositeEgressRequest(
             room_name=room_name,
             audio_only=True,
             audio_mixing=lk_egress.AudioMixing.DEFAULT_MIXING,
@@ -103,7 +103,7 @@ async def start_room_audio_egress(
         logger.info(f"Starting audio egress for room: {room_name}, file: {filepath}")
 
         async with lk_api.LiveKitAPI(url=url, api_key=key, api_secret=secret) as lk:
-            result = await lk.egress.start_track_composite_egress(request)
+            result = await lk.egress.start_room_composite_egress(request)
             egress_id = result.egress_id
             logger.info(f"Started egress: {egress_id} for room: {room_name}")
             return egress_id

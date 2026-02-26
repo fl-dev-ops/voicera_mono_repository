@@ -30,6 +30,11 @@ FOREVER_LEARNING_MODEL = "gemini-flash-lite-latest"
 
 
 def _get_mime_type_from_url(url: str) -> str:
+    url_l = (url or "").lower()
+    if ".mp3" in url_l:
+        return "audio/mpeg"
+    if ".wav" in url_l:
+        return "audio/wav"
     if ".webm" in (url or "").lower():
         return "audio/webm"
     return "audio/mp4"

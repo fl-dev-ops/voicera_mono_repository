@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
+import { SERVER_API_URL } from "@/lib/api-config"
 
-// Backend API URL - use Docker service name in container, localhost for local dev
-const BACKEND_URL = process.env.VOICERA_BACKEND_URL || "http://localhost:8000"
+const BACKEND_URL = SERVER_API_URL
 
 export async function POST(request: NextRequest) {
   try {

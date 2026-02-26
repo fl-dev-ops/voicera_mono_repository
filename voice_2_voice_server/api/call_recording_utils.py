@@ -16,14 +16,14 @@ async def submit_call_recording(
     agent_type: str,
     agent_config: dict,
     storage: MinIOStorage,
-    call_start_time: float
+    call_start_time: float,
 ) -> None:
     """
     Submit call recording data to the backend API after a call ends.
-    
+
     This function reads the transcript from MinIO, builds the recording URLs,
     and sends all call metadata to the backend API endpoint.
-    
+
     Args:
         call_sid: Call identifier (same as meeting_id)
         agent_type: Type of agent used for the call
@@ -32,14 +32,16 @@ async def submit_call_recording(
         call_start_time: Monotonic time when call started
     """
     try:
-        logger.info(f"Submitting call recording data to backend after call ends: {call_sid}")
+        logger.info(
+            f"Submitting call recording data to backend after call ends: {call_sid}"
+        )
         call_end_time = time.monotonic()
         call_duration = call_end_time - call_start_time
         end_time_utc = datetime.utcnow().isoformat()
-        
-        recording_url = f"minio://recordings/{call_sid}.wav"
+
+        recording_url = f"minio://recordings/calls/{call_sid}.mp3"
         transcript_url = f"minio://transcripts/{call_sid}.txt"
-        
+
         transcript_content = None
         try:
             response = await storage.get_object("transcripts", f"{call_sid}.txt")
@@ -48,11 +50,11 @@ async def submit_call_recording(
             response.release_conn()
         except Exception as e:
             logger.warning(f"⚠️ Could not read transcript: {e}")
-        
+
         # Get backend API URL from environment
         backend_url = os.getenv("VOICERA_BACKEND_URL", "http://localhost:8000")
         api_endpoint = f"{backend_url}/api/v1/call-recordings"
-        
+
         # Prepare payload
         payload = {
             "call_sid": call_sid,
@@ -63,21 +65,17 @@ async def submit_call_recording(
             "call_duration": call_duration,
             "end_time_utc": end_time_utc,
         }
-        
+
         # Add org_id if available in agent config
         if "org_id" in agent_config:
             payload["org_id"] = agent_config["org_id"]
-        
+
         # Send to backend API
         logger.info(f"📤 Sending call recording data to backend: {call_sid}")
-        response = requests.post(
-            api_endpoint,
-            json=payload,
-            timeout=10
-        )
+        response = requests.post(api_endpoint, json=payload, timeout=10)
         response.raise_for_status()
         logger.info(f"✅ Call recording data saved successfully: {call_sid}")
-        
+
     except requests.exceptions.RequestException as e:
         logger.error(f"❌ Failed to send call recording data: {e}")
     except Exception as e:

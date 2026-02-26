@@ -167,18 +167,18 @@ class VoiceraAgent(Agent):
         """Called when agent joins the room and session is active.
 
         For inbound calls: greet immediately.
-        For outbound calls: do NOT greet — wait for the user to speak first.
-        Per docs: "When placing an outbound call, its more customary for the
-        recipient to speak first."
+        For outbound calls: greeting is sent after callee joins (see outbound
+        flow below), so do not greet here.
         """
         if self._is_outbound:
-            logger.info("Outbound call — skipping greeting, waiting for user to speak")
+            logger.info("Outbound call — will send greeting after participant joins")
             return
 
         greeting = self._agent_config.get("greeting_message", "")
         if greeting.strip():
             logger.info(f"Sending greeting (inbound): {greeting[:60]}")
-            await self.session.generate_reply(instructions=greeting)
+            # Use direct TTS for greeting to avoid LLM round-trip latency.
+            await self.session.say(greeting)
 
     async def on_exit(self) -> None:
         """Called when the agent is about to leave the room."""
@@ -931,6 +931,14 @@ async def entrypoint(ctx: JobContext) -> None:
             participant = await ctx.wait_for_participant(identity=participant_identity)
             agent.sip_participant = participant
             logger.info(f"SIP participant joined: {participant.identity}")
+
+            # Send greeting only after callee is connected to avoid speaking
+            # into an empty room during outbound setup.
+            outbound_greeting = agent_config.get("greeting_message", "")
+            if isinstance(outbound_greeting, str) and outbound_greeting.strip():
+                await asyncio.sleep(0.25)
+                logger.info(f"Sending greeting (outbound): {outbound_greeting[:60]}")
+                await session.say(outbound_greeting)
 
         except Exception as e:
             logger.error(f"Outbound call failed: {e}")
