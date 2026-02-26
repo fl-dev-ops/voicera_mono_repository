@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { fetchApiRoute } from "@/lib/api"
 import {
   Select,
   SelectContent,
@@ -117,9 +118,8 @@ export function TestCallSheet({
     }
 
     try {
-      const res = await fetch("/api/outbound-call", {
+      const res = await fetchApiRoute("/api/outbound-call", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
 

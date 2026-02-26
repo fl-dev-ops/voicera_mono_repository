@@ -158,6 +158,30 @@ export async function createAgent(agentData: CreateAgentRequest): Promise<Agent>
 }
 
 /**
+ * Create an agent with all telephony resources (Vobiz/LiveKit).
+ * This handles trunk creation, dispatch rules, and Vobiz app creation.
+ */
+export async function createAgentWithResources(agentData: CreateAgentRequest): Promise<Agent> {
+  const response = await fetchApiRoute("/api/v1/agents/with-resources", {
+    method: "POST",
+    body: JSON.stringify(agentData),
+  })
+  
+  if (!response.ok) {
+    const errorText = await response.text()
+    let error = {}
+    try {
+      error = JSON.parse(errorText)
+    } catch {
+      error = { detail: errorText }
+    }
+    throw new Error((error as any).detail || (error as any).error || "Failed to create agent with resources")
+  }
+  
+  return response.json()
+}
+
+/**
  * Get a single agent by ID
  */
 export async function getAgent(agentId: string, orgId: string): Promise<Agent> {
@@ -859,9 +883,8 @@ export interface LiveKitSIPDispatchRuleResponse {
 export async function createLiveKitInboundTrunk(
   data: LiveKitSIPInboundTrunkRequest
 ): Promise<LiveKitSIPTrunkResponse> {
-  const response = await fetch("/api/livekit/sip/inbound-trunk", {
+  const response = await fetchApiRoute("/api/v1/livekit/sip/inbound-trunk", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
   if (!response.ok) {
@@ -879,9 +902,8 @@ export async function createLiveKitInboundTrunk(
 export async function createLiveKitOutboundTrunk(
   data: LiveKitSIPOutboundTrunkRequest
 ): Promise<LiveKitSIPTrunkResponse> {
-  const response = await fetch("/api/livekit/sip/outbound-trunk", {
+  const response = await fetchApiRoute("/api/v1/livekit/sip/outbound-trunk", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
   if (!response.ok) {
@@ -897,8 +919,8 @@ export async function createLiveKitOutboundTrunk(
 export async function deleteLiveKitTrunk(
   trunkId: string
 ): Promise<{ status: string; deleted: string }> {
-  const response = await fetch(
-    `/api/livekit/sip/trunk/${encodeURIComponent(trunkId)}`,
+  const response = await fetchApiRoute(
+    `/api/v1/livekit/sip/trunk/${encodeURIComponent(trunkId)}`,
     { method: "DELETE" }
   )
   if (!response.ok) {
@@ -916,9 +938,8 @@ export async function deleteLiveKitTrunk(
 export async function createLiveKitDispatchRule(
   data: LiveKitSIPDispatchRuleRequest
 ): Promise<LiveKitSIPDispatchRuleResponse> {
-  const response = await fetch("/api/livekit/sip/dispatch-rule", {
+  const response = await fetchApiRoute("/api/v1/livekit/sip/dispatch-rule", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
   if (!response.ok) {
@@ -935,8 +956,8 @@ export async function createLiveKitDispatchRule(
 export async function deleteLiveKitDispatchRule(
   ruleId: string
 ): Promise<{ status: string; deleted: string }> {
-  const response = await fetch(
-    `/api/livekit/sip/dispatch-rule/${encodeURIComponent(ruleId)}`,
+  const response = await fetchApiRoute(
+    `/api/v1/livekit/sip/dispatch-rule/${encodeURIComponent(ruleId)}`,
     { method: "DELETE" }
   )
   if (!response.ok) {

@@ -4,17 +4,26 @@ Architecture:
 - VoiceraAgent (Agent subclass) handles STT/LLM/TTS pipeline selection,
   memory bootstrap, per-turn fact retrieval/extraction, greeting, and
   post-call recording/summarization.
-- STT: Deepgram (nova-2)
-- TTS: Sarvam  (bulbul:v2)
-- LLM: OpenAI | Gemini
+- STT: Deepgram (nova-3)
+- TTS: Sarvam  (bulbul:v3)
+- LLM: OpenAI (gpt-4o)
 - All providers are commercial LiveKit plugins — no custom node overrides.
 - Entrypoint: `entrypoint(ctx: JobContext)` is called by the LiveKit Workers SDK
   for every room dispatched to this agent process.
+
+Telephony integration follows the official LiveKit docs:
+  https://docs.livekit.io/telephony/agents-integration/
+  https://github.com/livekit-examples/outbound-caller-python
+
+Inbound: dispatch rule creates room → dispatches agent → agent answers
+Outbound: API creates agent dispatch with metadata → agent connects →
+          agent dials via CreateSIPParticipant → call connects
 """
 
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import os
 import time
 import traceback
@@ -24,15 +33,16 @@ from typing import Optional
 from loguru import logger
 from dotenv import load_dotenv
 
+from livekit import api, rtc
 from livekit.agents import (
     Agent,
     AgentSession,
     JobContext,
     JobProcess,
     RoomInputOptions,
+    get_job_context,
 )
 from livekit.agents.llm import ChatContext, ChatMessage
-from livekit import rtc
 from livekit.plugins import silero
 
 from .services import (
@@ -49,6 +59,11 @@ from .backend_utils import (
     fetch_meeting_internal,
 )
 from .call_recording_utils import submit_call_recording
+from .egress_service import (
+    start_room_audio_egress,
+    stop_egress,
+    wait_for_egress_completion,
+)
 from storage.minio_client import MinIOStorage
 
 load_dotenv(override=False)
@@ -111,6 +126,7 @@ class VoiceraAgent(Agent):
         agent_config: dict,
         call_sid: str,
         agent_type: str,
+        is_outbound: bool = False,
         user_phone: Optional[str] = None,
         call_data: dict,
         call_start_time: float,
@@ -123,6 +139,7 @@ class VoiceraAgent(Agent):
         self._agent_config = agent_config
         self._call_sid = call_sid
         self._agent_type = agent_type
+        self._is_outbound = is_outbound
         self._user_phone = user_phone
         self._call_data = call_data
         self._call_start_time = call_start_time
@@ -139,15 +156,28 @@ class VoiceraAgent(Agent):
 
         self._last_user_text: Optional[str] = None
 
+        # SIP participant reference (set after dial for outbound)
+        self.sip_participant: Optional[rtc.RemoteParticipant] = None
+
     # ------------------------------------------------------------------
     # Lifecycle hooks
     # ------------------------------------------------------------------
 
     async def on_enter(self) -> None:
-        """Called when agent joins the room and session is active."""
+        """Called when agent joins the room and session is active.
+
+        For inbound calls: greet immediately.
+        For outbound calls: do NOT greet — wait for the user to speak first.
+        Per docs: "When placing an outbound call, its more customary for the
+        recipient to speak first."
+        """
+        if self._is_outbound:
+            logger.info("Outbound call — skipping greeting, waiting for user to speak")
+            return
+
         greeting = self._agent_config.get("greeting_message", "")
         if greeting.strip():
-            logger.info(f"Sending greeting: {greeting[:60]}")
+            logger.info(f"Sending greeting (inbound): {greeting[:60]}")
             await self.session.generate_reply(instructions=greeting)
 
     async def on_exit(self) -> None:
@@ -387,6 +417,14 @@ async def _resolve_sip_details(ctx: JobContext, call_sid: str) -> dict:
 
     Returns dict with keys: inbound, from_number, to_number.
     Must be called after the session has started and participants have joined.
+
+    Per the official docs, SIP participant attributes are:
+      - sip.phoneNumber:      caller's phone number (inbound) or dialed number (outbound)
+      - sip.trunkPhoneNumber: trunk phone number (DID dialed into for inbound, caller-ID for outbound)
+      - sip.ruleID:           dispatch rule ID — non-empty for inbound, empty for outbound
+      - sip.trunkID:          trunk ID used for the call
+      - sip.callID:           LiveKit SIP call ID
+    There is NO "sip.callDirection" attribute.
     """
     inbound_call: bool = False
     from_number: Optional[str] = None
@@ -396,13 +434,26 @@ async def _resolve_sip_details(ctx: JobContext, call_sid: str) -> dict:
     for _attempt in range(6):
         for participant in ctx.room.remote_participants.values():
             attrs = participant.attributes or {}
-            direction = attrs.get("sip.callDirection", "")
-            inbound_call = direction == "inbound"
-            from_number = attrs.get("sip.phoneNumber") or None
-            to_number = attrs.get("sip.trunkPhoneNumber") or None
+            # sip.ruleID is set for inbound calls (dispatch rule routed the call)
+            # and empty/absent for outbound calls
+            rule_id = attrs.get("sip.ruleID", "")
+            inbound_call = bool(rule_id)
+            phone_number = attrs.get("sip.phoneNumber") or None
+            trunk_phone = attrs.get("sip.trunkPhoneNumber") or None
+
+            if inbound_call:
+                # Inbound: phoneNumber = caller, trunkPhoneNumber = DID dialed
+                from_number = phone_number
+                to_number = trunk_phone
+            else:
+                # Outbound: phoneNumber = dialed number, trunkPhoneNumber = our caller-ID
+                from_number = trunk_phone
+                to_number = phone_number
+
             logger.info(
-                f"SIP participant: direction={direction}, "
-                f"from={from_number}, to={to_number}"
+                f"SIP participant: inbound={inbound_call}, ruleID={rule_id}, "
+                f"phoneNumber={phone_number}, trunkPhone={trunk_phone}, "
+                f"resolved from={from_number}, to={to_number}"
             )
             return {
                 "inbound": inbound_call,
@@ -423,6 +474,8 @@ async def _post_start_setup(
     agent_type: str,
     call_sid: str,
     start_time_utc: str,
+    is_outbound: bool = False,
+    outbound_phone: Optional[str] = None,
 ) -> None:
     """Background setup that runs AFTER session.start() has answered the call.
 
@@ -432,10 +485,20 @@ async def _post_start_setup(
     """
     try:
         # 1. Resolve SIP participant details
-        sip = await _resolve_sip_details(ctx, call_sid)
-        inbound_call = sip["inbound"]
-        from_number = sip["from_number"]
-        to_number = sip["to_number"]
+        if is_outbound and outbound_phone:
+            # For outbound, we already know the details
+            inbound_call = False
+            from_number = None  # our trunk number (resolved below if needed)
+            to_number = outbound_phone
+            user_phone = _normalize_phone(outbound_phone)
+            logger.info(f"Outbound call: user_phone={user_phone}")
+        else:
+            # For inbound, inspect SIP participant attributes
+            sip = await _resolve_sip_details(ctx, call_sid)
+            inbound_call = sip["inbound"]
+            from_number = sip["from_number"]
+            to_number = sip["to_number"]
+            user_phone = None
 
         # 2. Create meeting record
         meeting_payload = {
@@ -460,38 +523,36 @@ async def _post_start_setup(
             )
 
         # 3. Resolve user phone
-        user_phone: Optional[str] = None
-        meeting = None
-        for attempt in range(4):
-            meeting = await fetch_meeting_internal(call_sid)
-            if meeting:
-                break
-            if attempt < 3:
-                logger.debug(
-                    f"Meeting not found yet (attempt {attempt + 1}/4), retrying in 0.5s..."
+        if not is_outbound:
+            # For inbound, resolve from meeting record
+            meeting = None
+            for attempt in range(4):
+                meeting = await fetch_meeting_internal(call_sid)
+                if meeting:
+                    break
+                if attempt < 3:
+                    logger.debug(
+                        f"Meeting not found yet (attempt {attempt + 1}/4), retrying in 0.5s..."
+                    )
+                    await asyncio.sleep(0.5)
+
+            if not meeting:
+                logger.warning(
+                    "Could not fetch meeting after 4 attempts — user_phone will be None"
                 )
-                await asyncio.sleep(0.5)
 
-        if not meeting:
-            logger.warning(
-                "Could not fetch meeting after 4 attempts — user_phone will be None"
-            )
+            if meeting:
+                is_inbound_meeting = meeting.get("inbound")
+                if is_inbound_meeting is True:
+                    raw_phone = meeting.get("from_number")
+                elif is_inbound_meeting is False:
+                    raw_phone = meeting.get("to_number")
+                else:
+                    raw_phone = None
+                if raw_phone:
+                    user_phone = _normalize_phone(raw_phone)
 
-        if meeting:
-            is_inbound = meeting.get("inbound")
-            if is_inbound is True:
-                raw_phone = meeting.get("from_number")
-            elif is_inbound is False:
-                raw_phone = meeting.get("to_number")
-            else:
-                raw_phone = None
-            if raw_phone:
-                user_phone = _normalize_phone(raw_phone)
-
-        logger.info(
-            f"Resolved user_phone={user_phone} "
-            f"(inbound={meeting.get('inbound') if meeting else 'N/A'})"
-        )
+        logger.info(f"Resolved user_phone={user_phone} (outbound={is_outbound})")
 
         # 4. Update agent's user_phone so per-turn memory hooks work
         agent._user_phone = user_phone
@@ -531,10 +592,12 @@ async def _post_start_setup(
                             )
                     if lines:
                         memory_block = (
-                            "You have persistent memory about this user. "
-                            "Use it to personalize. If something conflicts "
-                            "with what the user says now, prefer what they say now.\n\n"
-                            + "\n\n".join(lines)
+                            "You have persistent memory about this user from previous calls. "
+                            "This is a NEW conversation — do NOT resume or reference the "
+                            "previous conversation directly. Use the memory context only to "
+                            "personalize (e.g. knowing the user's name, preferences). "
+                            "If something conflicts with what the user says now, prefer "
+                            "what they say now.\n\n" + "\n\n".join(lines)
                         )
                         logger.info(
                             f"Memory bootstrap: {len(facts)} facts, "
@@ -557,13 +620,21 @@ async def entrypoint(ctx: JobContext) -> None:
     """Main entrypoint for each inbound or outbound SIP call.
 
     The LiveKit Worker dispatches a Job for every room.
-    Room name = call_sid / LiveKit room name.
-    Agent metadata (agent_id) is passed via room metadata (JSON) or
-    participant attributes set by the dispatch rule.
 
-    IMPORTANT: We do NOT call ctx.connect() manually — session.start()
-    handles the room connection.  This matches the official Vobiz+LiveKit
-    inbound example (https://github.com/vobiz-ai/Livekit-vobiz-inbound).
+    INBOUND flow (dispatch rule creates room):
+      - Dispatch rule creates room + dispatches this agent
+      - agent_id comes from job attributes or DEFAULT_AGENT_ID
+      - Agent greets immediately after session.start()
+
+    OUTBOUND flow (API dispatches agent with metadata):
+      - server.py calls CreateAgentDispatchRequest with metadata containing
+        phone_number and agent_id
+      - Agent connects to room, starts session, then dials via CreateSIPParticipant
+      - Agent waits for user to speak first (no greeting)
+
+    Follows official LiveKit telephony docs:
+      https://docs.livekit.io/telephony/agents-integration/
+      https://github.com/livekit-examples/outbound-caller-python
     """
     call_start_time = time.monotonic()
     start_time_utc = datetime.utcnow().isoformat()
@@ -575,21 +646,38 @@ async def entrypoint(ctx: JobContext) -> None:
     logger.info(f"New call: room={room_name}")
 
     # -------------------------------------------------------------------------
-    # Resolve agent_id from room metadata or job attributes
+    # Parse job metadata — outbound calls include phone_number + agent_id
     # -------------------------------------------------------------------------
+    dial_info: Optional[dict] = None
+    phone_number: Optional[str] = None
     agent_id: Optional[str] = None
+
     try:
-        import json as _json
+        meta_str = ctx.job.metadata or ""
+        if meta_str.strip().startswith("{"):
+            dial_info = _json.loads(meta_str)
+            phone_number = dial_info.get("phone_number")
+            agent_id = dial_info.get("agent_id")
+            if phone_number:
+                logger.info(f"Outbound call detected: phone_number={phone_number}")
+    except Exception as e:
+        logger.debug(f"No valid JSON in job metadata: {e}")
 
-        # Try room metadata first
-        meta = room.metadata or ""
-        if meta.strip().startswith("{"):
-            meta_dict = _json.loads(meta)
-            agent_id = meta_dict.get("agent_id")
-    except Exception:
-        pass
+    is_outbound = phone_number is not None
 
-    # Try job attributes (set by dispatch rule's `attributes` field)
+    # -------------------------------------------------------------------------
+    # Resolve agent_id (fallback chain)
+    # -------------------------------------------------------------------------
+    if not agent_id:
+        try:
+            # Try room metadata (legacy)
+            room_meta = room.metadata or ""
+            if room_meta.strip().startswith("{"):
+                room_meta_dict = _json.loads(room_meta)
+                agent_id = room_meta_dict.get("agent_id")
+        except Exception:
+            pass
+
     if not agent_id:
         try:
             job_attrs = ctx.job.attributes or {}
@@ -602,11 +690,14 @@ async def entrypoint(ctx: JobContext) -> None:
 
     if not agent_id:
         logger.error(
-            "No agent_id found in room metadata, job attributes, or DEFAULT_AGENT_ID env var. Aborting."
+            "No agent_id found in job metadata, room metadata, "
+            "job attributes, or DEFAULT_AGENT_ID env var. Aborting."
         )
         return
 
-    logger.info(f"Resolved agent_id={agent_id} for room={room_name}")
+    logger.info(
+        f"Resolved agent_id={agent_id} for room={room_name} (outbound={is_outbound})"
+    )
 
     # -------------------------------------------------------------------------
     # Fetch agent config from backend
@@ -638,7 +729,7 @@ async def entrypoint(ctx: JobContext) -> None:
     llm_plugin = create_livekit_llm(llm_config)
 
     # -------------------------------------------------------------------------
-    # Shared call state
+    # Shared call state (fresh per call — no carryover)
     # -------------------------------------------------------------------------
     call_data = {
         "audio_chunks": [],
@@ -665,12 +756,16 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # -------------------------------------------------------------------------
     # Instantiate agent (user_phone resolved later in background)
+    # For outbound: we already know the user_phone from dial_info
     # -------------------------------------------------------------------------
+    outbound_user_phone = _normalize_phone(phone_number) if phone_number else None
+
     agent = VoiceraAgent(
         agent_config=agent_config,
         call_sid=call_sid,
         agent_type=agent_type,
-        user_phone=None,  # resolved in _post_start_setup
+        is_outbound=is_outbound,
+        user_phone=outbound_user_phone,  # known for outbound, resolved later for inbound
         call_data=call_data,
         call_start_time=call_start_time,
         start_time_utc=start_time_utc,
@@ -681,7 +776,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # -------------------------------------------------------------------------
     # Build AgentSession
     # -------------------------------------------------------------------------
-    from livekit.plugins import turn_detector as td
+    from livekit.plugins.turn_detector.english import EnglishModel
 
     session_kwargs: dict = dict(
         vad=vad,
@@ -697,52 +792,34 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     if enable_smart_turn:
         try:
-            session_kwargs["turn_detection"] = td.MultilingualModel()
-            logger.info("Turn detection: MultilingualModel ENABLED")
+            session_kwargs["turn_detection"] = EnglishModel()
+            logger.info("Turn detection: EnglishModel ENABLED")
         except Exception as e:
             logger.warning(
-                f"Could not load MultilingualModel: {e} — using default turn detection"
+                f"Could not load EnglishModel: {e} — using default turn detection"
             )
 
     session = AgentSession(**session_kwargs)
 
     # -------------------------------------------------------------------------
-    # Start session — this connects to the room and answers the SIP call.
-    # DO NOT call ctx.connect() before this — session.start() handles it.
-    # Matches official Vobiz+LiveKit inbound example.
+    # Register shutdown callback — runs when the room disconnects or
+    # ctx.shutdown() is called.  This is where we persist call data.
     # -------------------------------------------------------------------------
-    try:
-        await session.start(
-            agent=agent,
-            room=ctx.room,
-            room_input_options=RoomInputOptions(
-                # Don't close when caller briefly disconnects (matches official example)
-                close_on_disconnect=False,
-            ),
-        )
-
-        # Kick off background setup (SIP details, meeting, memory) without
-        # blocking the call — the caller hears the greeting immediately.
-        asyncio.create_task(
-            _post_start_setup(
-                ctx=ctx,
-                agent=agent,
-                session=session,
-                agent_config=agent_config,
-                agent_type=agent_type,
-                call_sid=call_sid,
-                start_time_utc=start_time_utc,
-            )
-        )
-
-        await ctx.wait_for_shutdown()
-
-    except Exception as e:
-        logger.error(f"Session error: {type(e).__name__}: {e}")
-        logger.debug(traceback.format_exc())
-    finally:
+    async def _on_shutdown(reason: str = "") -> None:
         duration = time.monotonic() - call_start_time
-        logger.info(f"Call ended after {duration:.1f}s — saving data for {call_sid}")
+        logger.info(
+            f"Call ended after {duration:.1f}s — saving data for {call_sid} "
+            f"(reason={reason!r})"
+        )
+
+        # Stop LiveKit Egress recording
+        if egress_id:
+            try:
+                logger.info(f"Stopping egress: {egress_id}")
+                await stop_egress(egress_id)
+                logger.info(f"Egress stopped: {egress_id}")
+            except Exception as e:
+                logger.warning(f"Error stopping egress: {e}")
 
         await _save_call_data(call_sid, call_data, storage)
 
@@ -761,3 +838,124 @@ async def entrypoint(ctx: JobContext) -> None:
             storage=storage,
             call_start_time=call_start_time,
         )
+
+    ctx.add_shutdown_callback(_on_shutdown)
+
+    # -------------------------------------------------------------------------
+    # Connect to room — required per official docs
+    # For inbound: room already exists (dispatch rule created it)
+    # For outbound: room created by CreateAgentDispatch
+    # -------------------------------------------------------------------------
+    logger.info(f"Connecting to room: {room_name}")
+    await ctx.connect()
+
+    # -------------------------------------------------------------------------
+    # Start LiveKit Egress for call recording
+    # This records the call audio to S3/MinIO
+    # -------------------------------------------------------------------------
+    egress_id = None
+    enable_egress = os.getenv("ENABLE_EGRESS_RECORDING", "true").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+    if enable_egress:
+        try:
+            egress_id = await start_room_audio_egress(
+                room_name=room_name,
+                call_sid=call_sid,
+                audio_format="mp3",
+            )
+            if egress_id:
+                logger.info(f"Egress started: {egress_id}")
+            else:
+                logger.warning("Failed to start egress recording")
+        except Exception as e:
+            logger.warning(f"Error starting egress: {e}")
+
+    # -------------------------------------------------------------------------
+    # Start session — this answers the SIP call for inbound.
+    # For outbound, we start the session BEFORE dialing so the agent is ready
+    # to listen as soon as the callee picks up.
+    # -------------------------------------------------------------------------
+    session_started = asyncio.create_task(
+        session.start(
+            agent=agent,
+            room=ctx.room,
+            room_input_options=RoomInputOptions(
+                close_on_disconnect=False,
+            ),
+        )
+    )
+
+    if is_outbound:
+        # -----------------------------------------------------------------
+        # OUTBOUND: Dial the phone number via SIP
+        # Per docs: agent starts session first, then creates SIP participant
+        # -----------------------------------------------------------------
+        outbound_trunk_id = os.environ.get("LIVEKIT_SIP_OUTBOUND_TRUNK_ID", "")
+
+        # Check per-agent trunk override
+        per_agent_trunk = agent_config.get("livekit_outbound_trunk_id", "")
+        if per_agent_trunk:
+            outbound_trunk_id = per_agent_trunk
+
+        if not outbound_trunk_id:
+            logger.error("No outbound SIP trunk configured. Aborting outbound call.")
+            ctx.shutdown()
+            return
+
+        participant_identity = phone_number  # use phone number as identity
+
+        logger.info(
+            f"Dialing {phone_number} via trunk={outbound_trunk_id} in room={room_name}"
+        )
+
+        try:
+            await ctx.api.sip.create_sip_participant(
+                api.CreateSIPParticipantRequest(
+                    room_name=ctx.room.name,
+                    sip_trunk_id=outbound_trunk_id,
+                    sip_call_to=phone_number,
+                    participant_identity=participant_identity,
+                    # Block until the callee answers (or call fails)
+                    wait_until_answered=True,
+                )
+            )
+            logger.info(f"Outbound call answered: {phone_number}")
+
+            # Wait for session to be fully started
+            await session_started
+
+            # Wait for the SIP participant to join the room
+            participant = await ctx.wait_for_participant(identity=participant_identity)
+            agent.sip_participant = participant
+            logger.info(f"SIP participant joined: {participant.identity}")
+
+        except Exception as e:
+            logger.error(f"Outbound call failed: {e}")
+            ctx.shutdown()
+            return
+    else:
+        # -----------------------------------------------------------------
+        # INBOUND: Just wait for session to start — greeting handled by on_enter
+        # -----------------------------------------------------------------
+        await session_started
+
+    # -------------------------------------------------------------------------
+    # Kick off background setup (meeting record, memory bootstrap) without
+    # blocking the call.
+    # -------------------------------------------------------------------------
+    asyncio.create_task(
+        _post_start_setup(
+            ctx=ctx,
+            agent=agent,
+            session=session,
+            agent_config=agent_config,
+            agent_type=agent_type,
+            call_sid=call_sid,
+            start_time_utc=start_time_utc,
+            is_outbound=is_outbound,
+            outbound_phone=phone_number if is_outbound else None,
+        )
+    )

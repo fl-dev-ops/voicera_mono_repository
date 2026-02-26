@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { getCurrentUser, getAgents, createAgent, createVobizApplication, deleteVobizApplication, deleteAgent, unlinkVobizNumber, fetchApiRoute, getIntegrations, createLiveKitInboundTrunk, createLiveKitOutboundTrunk, createLiveKitDispatchRule, deleteLiveKitDispatchRule, deleteLiveKitTrunk, type User, type Agent, type CreateAgentRequest, type Integration } from "@/lib/api"
+import { getCurrentUser, getAgents, createAgentWithResources, deleteAgent, fetchApiRoute, getIntegrations, type User, type Agent, type CreateAgentRequest, type Integration } from "@/lib/api"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -727,116 +727,21 @@ export default function AssistantsPage() {
         ttsModel.loudness = config.similarityBoost
       }
 
-      // For Vobiz provider, create a Vobiz application (legacy path)
-      let vobizAppId: string | undefined
-      let vobizAnswerUrl: string | undefined
-
-      if (config.telephonyProvider === "Vobiz") {
-        vobizAnswerUrl = `${process.env.NEXT_PUBLIC_JOHNAIC_SERVER_URL}/answer?agent_id=${agentId}`
-        console.log("Vobiz answer url", vobizAnswerUrl)
-        const vobizAppResponse = await createVobizApplication(config.name, vobizAnswerUrl)
-        console.log("vobizAppResponse", vobizAppResponse)
-        if (vobizAppResponse.status === "success" && vobizAppResponse.app_id) {
-          vobizAppId = vobizAppResponse.app_id
-        } else {
-          throw new Error(vobizAppResponse.message || "Failed to create Vobiz application")
+      // Build telephony config for backend - backend handles all resource creation
+      const telephonyConfig: any = {}
+      if (config.telephonyProvider === "Vobiz" || config.telephonyProvider === "LiveKit") {
+        if (config.sipPhoneNumber) {
+          telephonyConfig.phone_number = config.sipPhoneNumber
         }
-      }
-
-      // LiveKit SIP: if the user filled in SIP credentials, create trunks + dispatch rule
-      let livekitInboundTrunkId = config.livekitInboundTrunkId
-      let livekitOutboundTrunkId = config.livekitOutboundTrunkId
-      let livekitDispatchRuleId = config.livekitDispatchRuleId
-
-      // Helper: extract conflicting trunk ID from LiveKit error messages like:
-      // "Conflicting inbound SIP Trunks: "<new>" and "ST_xxxx", using the same number(s)..."
-      const extractConflictingTrunkId = (message: string): string | null => {
-        const match = message.match(/"(ST_[A-Za-z0-9]+)"/)
-        return match ? match[1] : null
-      }
-
-      if (
-        config.telephonyProvider === "LiveKit" &&
-        config.sipAddress &&
-        config.sipPhoneNumber
-      ) {
-        // Create inbound trunk — auto-delete conflicting trunk and retry once
-        if (!livekitInboundTrunkId) {
-          try {
-            const inboundResult = await createLiveKitInboundTrunk({
-              name: `${config.name} Inbound`,
-              numbers: [config.sipPhoneNumber],
-              auth_username: config.sipUsername || undefined,
-              auth_password: config.sipPassword || undefined,
-              vobiz_sip_domain: config.sipAddress || undefined,
-            })
-            livekitInboundTrunkId = inboundResult.sip_trunk_id
-            updateConfig("livekitInboundTrunkId", livekitInboundTrunkId)
-          } catch (err: any) {
-            const conflictId = extractConflictingTrunkId(err?.message || "")
-            if (conflictId) {
-              console.warn(`Conflicting inbound trunk ${conflictId} — deleting and retrying`)
-              await deleteLiveKitTrunk(conflictId)
-              const inboundResult = await createLiveKitInboundTrunk({
-                name: `${config.name} Inbound`,
-                numbers: [config.sipPhoneNumber],
-                auth_username: config.sipUsername || undefined,
-                auth_password: config.sipPassword || undefined,
-                vobiz_sip_domain: config.sipAddress || undefined,
-              })
-              livekitInboundTrunkId = inboundResult.sip_trunk_id
-              updateConfig("livekitInboundTrunkId", livekitInboundTrunkId)
-            } else {
-              throw err
-            }
+        if (config.sipUsername || config.sipPassword) {
+          telephonyConfig.sip = {
+            username: config.sipUsername,
+            password: config.sipPassword,
           }
         }
-
-        // Create outbound trunk — auto-delete conflicting trunk and retry once
-        if (!livekitOutboundTrunkId) {
-          try {
-            const outboundResult = await createLiveKitOutboundTrunk({
-              name: `${config.name} Outbound`,
-              address: config.sipAddress,
-              numbers: [config.sipPhoneNumber],
-              auth_username: config.sipUsername || undefined,
-              auth_password: config.sipPassword || undefined,
-            })
-            livekitOutboundTrunkId = outboundResult.sip_trunk_id
-            updateConfig("livekitOutboundTrunkId", livekitOutboundTrunkId)
-          } catch (err: any) {
-            const conflictId = extractConflictingTrunkId(err?.message || "")
-            if (conflictId) {
-              console.warn(`Conflicting outbound trunk ${conflictId} — deleting and retrying`)
-              await deleteLiveKitTrunk(conflictId)
-              const outboundResult = await createLiveKitOutboundTrunk({
-                name: `${config.name} Outbound`,
-                address: config.sipAddress,
-                numbers: [config.sipPhoneNumber],
-                auth_username: config.sipUsername || undefined,
-                auth_password: config.sipPassword || undefined,
-              })
-              livekitOutboundTrunkId = outboundResult.sip_trunk_id
-              updateConfig("livekitOutboundTrunkId", livekitOutboundTrunkId)
-            } else {
-              throw err
-            }
-          }
-        }
-
-        // Create dispatch rule if not already done
-        if (!livekitDispatchRuleId && livekitInboundTrunkId) {
-          const ruleResult = await createLiveKitDispatchRule({
-            phone_number: config.sipPhoneNumber,
-            agent_id: agentId,
-            trunk_id: livekitInboundTrunkId,
-            name: `${config.name} — ${config.sipPhoneNumber}`,
-          })
-          livekitDispatchRuleId = ruleResult.sip_dispatch_rule_id
-          updateConfig("livekitDispatchRuleId", livekitDispatchRuleId)
-        }
       }
 
+      // Build agent data with telephony config
       const agentData: CreateAgentRequest = {
         org_id: user.org_id,
         agent_category: "voicera_telephony",
@@ -851,22 +756,14 @@ export default function AssistantsPage() {
           llm_model: llmModel,
           stt_model: sttModel,
           tts_model: ttsModel,
+          telephony: telephonyConfig,
         },
         telephony_provider: config.telephonyProvider as any,
-        ...(config.telephonyProvider === "Vobiz" && {
-          vobiz_app_id: vobizAppId,
-          vobiz_answer_url: vobizAnswerUrl,
-        }),
-        ...(config.telephonyProvider === "LiveKit" && {
-          ...(livekitInboundTrunkId && { livekit_inbound_trunk_id: livekitInboundTrunkId }),
-          ...(livekitOutboundTrunkId && { livekit_outbound_trunk_id: livekitOutboundTrunkId }),
-          ...(livekitDispatchRuleId && { livekit_dispatch_rule_id: livekitDispatchRuleId }),
-          ...(config.sipPhoneNumber && { phone_number: config.sipPhoneNumber }),
-        }),
+        ...(config.sipPhoneNumber && { phone_number: config.sipPhoneNumber }),
       }
 
-      // Create agent via API
-      const newAgent = await createAgent(agentData)
+      // Create agent with all resources via backend
+      const newAgent = await createAgentWithResources(agentData)
 
       
       // Refresh agents list to get all agents with proper data
@@ -1696,41 +1593,18 @@ export default function AssistantsPage() {
             {createStep === 4 && (
               <div className="bg-white rounded-xl border border-slate-200 p-8">
                 <div className="space-y-8">
-                  {/* Telephony Provider Selection */}
-                  <div className="space-y-3">
-                    <label className="text-base font-bold text-slate-900">Select Telephone Provider</label>
-                    <Select
-                      value={config.telephonyProvider}
-                      onValueChange={(v) => updateConfig("telephonyProvider", v)}
-                    >
-                      <SelectTrigger className="h-12 rounded-lg border-slate-200 bg-white text-base font-medium hover:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all">
-                        <div className="flex items-center gap-2">
-                          <Phone className="h-4 w-4 text-slate-400" />
-                          <SelectValue placeholder="Select telephone provider" />
-                        </div>
-                      </SelectTrigger>
-                      <SelectContent className="rounded-lg">
-                        <SelectItem value="LiveKit" className="py-3">
-                          <span className="font-medium">LiveKit SIP</span>
-                        </SelectItem>
-                        <SelectItem disabled value="Vobiz" className="py-3">
-                          <span className="font-medium">Vobiz</span>
-                          <span className="ml-2 text-xs text-slate-400">(legacy)</span>
-                        </SelectItem>
-                        <SelectItem disabled value="Plivo" className="py-3">
-                          <span className="font-medium">Plivo</span>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-sm text-slate-500">
-                      Choose the telephone provider for your agent calls.
-                    </p>
+                  {/* Vobiz Telephony Info */}
+                  <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Phone className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-semibold text-blue-800">Vobiz Telephony</span>
+                    </div>
+                    <p className="text-sm text-blue-700">Vobiz is your telephony provider. Configure your SIP trunk credentials below.</p>
                   </div>
 
-                  {/* LiveKit SIP — Vobiz SIP credentials */}
-                  {config.telephonyProvider === "LiveKit" && (
-                    <div className="space-y-6">
-                      {/* Step 0: Set Vobiz Primary URI callout */}
+                  {/* Vobiz SIP credentials */}
+                  <div className="space-y-6">
+                      {/* Set Vobiz Primary URI callout */}
                       <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 space-y-3">
                         <p className="text-sm font-semibold text-amber-800">Before you continue — configure both trunks in Vobiz</p>
 
@@ -1745,7 +1619,7 @@ export default function AssistantsPage() {
                             Transport: <span className="font-semibold">TLS</span> — LiveKit Cloud only accepts encrypted SIP on port 5061. UDP/TCP will be rejected.
                           </p>
                           <p className="text-xs text-amber-600">
-                            The <span className="font-semibold">SIP Domain</span> shown in Vobiz (e.g. <span className="font-mono">33aba403.sip.vobiz.ai</span>) is what goes in the &quot;Vobiz SIP Domain&quot; field below.
+                            We'll automatically create a Vobiz trunk with this as the inbound destination.
                           </p>
                         </div>
 
@@ -1775,15 +1649,16 @@ export default function AssistantsPage() {
                       <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 space-y-1">
                         <p className="text-sm font-semibold text-blue-800">How it works</p>
                         <p className="text-sm text-blue-700">
-                          Enter your Vobiz SIP trunk credentials below. When you click <span className="font-semibold">Create Agent</span>, we will automatically:
+                          Enter your credentials below. When you click <span className="font-semibold">Create Agent</span>, we will automatically:
                         </p>
                         <ol className="text-sm text-blue-700 list-decimal list-inside space-y-0.5 mt-1">
-                          <li>Register an inbound SIP trunk (Vobiz → LiveKit)</li>
-                          <li>Register an outbound SIP trunk (LiveKit → Vobiz)</li>
-                          <li>Create a dispatch rule routing your phone number to this agent</li>
+                          <li>Create a Vobiz trunk with LiveKit as inbound destination</li>
+                          <li>Create a LiveKit outbound trunk (for making calls)</li>
+                          <li>Create a LiveKit inbound trunk (for receiving calls)</li>
+                          <li>Create a dispatch rule routing calls to this agent</li>
                         </ol>
                         <p className="text-sm text-blue-600 mt-1">
-                          Each inbound call to your number will automatically reach this agent. Outbound calls use the same trunk.
+                          Each inbound call to your number will automatically reach this agent.
                         </p>
                       </div>
 
@@ -1799,20 +1674,6 @@ export default function AssistantsPage() {
                           className="h-11 rounded-lg border-slate-200 font-mono text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                         />
                         <p className="text-xs text-slate-500">E.164 format — the number your customers will call (from your Vobiz account).</p>
-                      </div>
-
-                      {/* SIP domain */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-semibold text-slate-800">
-                          Vobiz SIP Domain <span className="text-red-500">*</span>
-                        </label>
-                        <Input
-                          value={config.sipAddress}
-                          onChange={(e) => updateConfig("sipAddress", e.target.value)}
-                          placeholder="33aba403.sip.vobiz.ai"
-                          className="h-11 rounded-lg border-slate-200 font-mono text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                        />
-                        <p className="text-xs text-slate-500">The SIP Domain from your Vobiz trunk settings (e.g. 33aba403.sip.vobiz.ai).</p>
                       </div>
 
                       {/* SIP credentials */}
@@ -1856,8 +1717,7 @@ export default function AssistantsPage() {
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
+                  </div>
 
                 <Button
                   onClick={handleNextStep}
@@ -1937,31 +1797,27 @@ export default function AssistantsPage() {
                   <div className="flex items-start justify-between p-4 border-b border-slate-200 hover:bg-slate-100/50 transition-colors">
                     <div>
                       <p className="text-sm font-bold text-slate-900 mb-2">Telephony Provider</p>
-                      <p className="text-sm font-medium text-slate-700">
-                        {config.telephonyProvider === "LiveKit" ? "LiveKit SIP" : (config.telephonyProvider ? config.telephonyProvider.charAt(0).toUpperCase() + config.telephonyProvider.slice(1) : "—")}
-                      </p>
-                      {config.telephonyProvider === "LiveKit" && (
-                        <div className="mt-1 space-y-0.5">
-                          {config.sipPhoneNumber && (
-                            <p className="text-sm text-slate-500 font-mono">Number: {config.sipPhoneNumber}</p>
-                          )}
-                          {config.sipAddress && (
-                            <p className="text-sm text-slate-500 font-mono">SIP: {config.sipAddress}</p>
-                          )}
-                          {config.livekitInboundTrunkId && (
-                            <p className="text-xs text-slate-400 font-mono">Inbound trunk: {config.livekitInboundTrunkId}</p>
-                          )}
-                          {config.livekitOutboundTrunkId && (
-                            <p className="text-xs text-slate-400 font-mono">Outbound trunk: {config.livekitOutboundTrunkId}</p>
-                          )}
-                          {config.livekitDispatchRuleId && (
-                            <p className="text-xs text-slate-400 font-mono">Dispatch rule: {config.livekitDispatchRuleId}</p>
-                          )}
-                          {!config.sipPhoneNumber && !config.sipAddress && (
-                            <p className="text-sm text-amber-600">No SIP credentials entered — trunks will not be created automatically.</p>
-                          )}
-                        </div>
-                      )}
+                      <p className="text-sm font-medium text-slate-700">Vobiz</p>
+                      <div className="mt-1 space-y-0.5">
+                        {config.sipPhoneNumber && (
+                          <p className="text-sm text-slate-500 font-mono">Number: {config.sipPhoneNumber}</p>
+                        )}
+                        {config.sipUsername && (
+                          <p className="text-sm text-slate-500 font-mono">Username: {config.sipUsername}</p>
+                        )}
+                        {config.livekitInboundTrunkId && (
+                          <p className="text-xs text-slate-400 font-mono">Inbound trunk: {config.livekitInboundTrunkId}</p>
+                        )}
+                        {config.livekitOutboundTrunkId && (
+                          <p className="text-xs text-slate-400 font-mono">Outbound trunk: {config.livekitOutboundTrunkId}</p>
+                        )}
+                        {config.livekitDispatchRuleId && (
+                          <p className="text-xs text-slate-400 font-mono">Dispatch rule: {config.livekitDispatchRuleId}</p>
+                        )}
+                        {!config.sipPhoneNumber && !config.sipUsername && (
+                          <p className="text-sm text-amber-600">No SIP credentials entered — trunks will not be created automatically.</p>
+                        )}
+                      </div>
                     </div>
                     <button onClick={() => setCreateStep(4)} className="text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors">
                       Edit

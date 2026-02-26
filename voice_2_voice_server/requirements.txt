@@ -1,7 +1,5 @@
 # Core
 python-dotenv>=1.2.1
-fastapi[all]>=0.115.0
-uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 
 # LiveKit Agents SDK + plugins

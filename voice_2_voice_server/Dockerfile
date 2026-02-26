@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # cache-bust: 3dce812
 COPY . .
 
+# Download model weights (turn detector, silero VAD, etc.) at build time
+RUN python main.py download-files
+
 # Expose port
 EXPOSE 7860
 

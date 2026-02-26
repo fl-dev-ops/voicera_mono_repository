@@ -1,10 +1,14 @@
 """
 Agent API routes.
 """
+
 from fastapi import APIRouter, HTTPException, status, Depends
 from app.models.schemas import (
-    AgentConfigCreate, AgentConfigResponse, AgentConfigUpdate,
-    SuccessResponse, ErrorResponse
+    AgentConfigCreate,
+    AgentConfigResponse,
+    AgentConfigUpdate,
+    SuccessResponse,
+    ErrorResponse,
 )
 from app.services import agent_service
 from app.auth import get_current_user, verify_api_key
@@ -17,65 +21,60 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 # Bot Endpoints (API Key Authentication)
 # ============================================================================
 
+
 @router.get("/config/{agent_type}", response_model=AgentConfigResponse)
-async def get_agent_config_for_bot(
-    agent_type: str,
-    _: bool = Depends(verify_api_key)
-):
+async def get_agent_config_for_bot(agent_type: str, _: bool = Depends(verify_api_key)):
     """
     Get agent configuration by agent_type (bot endpoint).
-    
+
     Requires X-API-Key header for authentication.
     """
     agent = agent_service.fetch_agent_config(agent_type)
     if not agent:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Agent type not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent type not found"
         )
     return agent
 
 
 @router.get("/config/id/{agent_id}", response_model=AgentConfigResponse)
 async def get_agent_config_by_id_for_bot(
-    agent_id: str,
-    _: bool = Depends(verify_api_key)
+    agent_id: str, _: bool = Depends(verify_api_key)
 ):
     """
     Get agent configuration by agent_id (bot endpoint).
-    
+
     Requires X-API-Key header for authentication.
     """
     agent = agent_service.fetch_agent_config_by_id(agent_id)
     if not agent:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Agent ID not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent ID not found"
         )
     return agent
 
 
 @router.get("/by-phone/{phone_number}", response_model=AgentConfigResponse)
 async def get_agent_by_phone_number(
-    phone_number: str,
-    _: bool = Depends(verify_api_key)
+    phone_number: str, _: bool = Depends(verify_api_key)
 ):
     """
     Get agent configuration by phone number (bot endpoint).
-    
+
     Requires X-API-Key header for authentication.
     Phone number format: +918071387434
     """
     # URL decode the phone number (+ becomes %2B in URLs)
     from urllib.parse import unquote
+
     decoded_phone = unquote(phone_number)
-    
+
     # Use phone number as-is (format: +918071387434)
     agent = agent_service.fetch_agent_by_phone_number(decoded_phone)
     if not agent:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No agent found for this phone number"
+            detail="No agent found for this phone number",
         )
     return agent
 
@@ -84,10 +83,11 @@ async def get_agent_by_phone_number(
 # Frontend Endpoints (User JWT Authentication)
 # ============================================================================
 
+
 @router.post("", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
 async def create_agent(
     agent_data: AgentConfigCreate,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """
     Create a new agent configuration (protected endpoint).
@@ -95,22 +95,53 @@ async def create_agent(
     if agent_data.org_id != current_user["org_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to create agents for this organization"
+            detail="Not authorized to create agents for this organization",
         )
-    
+
     result = agent_service.create_agent(agent_data)
     if result["status"] == "fail":
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result["message"]
+            status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"]
+        )
+    return result
+
+
+@router.post(
+    "/with-resources",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_agent_with_resources(
+    agent_data: AgentConfigCreate,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Create a new agent with all telephony resources (Vobiz/LiveKit).
+
+    This endpoint handles:
+    - Vobiz application creation (if Vobiz provider)
+    - LiveKit trunks and dispatch rules
+    - Agent record in MongoDB
+
+    All cleanup happens automatically on failure.
+    """
+    if agent_data.org_id != current_user["org_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to create agents for this organization",
+        )
+
+    result = await agent_service.create_agent_with_resources(agent_data)
+    if result["status"] == "fail":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"]
         )
     return result
 
 
 @router.get("/org/{org_id}", response_model=List[AgentConfigResponse])
 async def get_agents_by_org(
-    org_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    org_id: str, current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
     Get all agents for a given organization (protected endpoint).
@@ -118,17 +149,16 @@ async def get_agents_by_org(
     if org_id != current_user["org_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this organization's agents"
+            detail="Not authorized to access this organization's agents",
         )
-    
+
     agents = agent_service.fetch_agents_of_org(org_id)
     return agents
 
 
 @router.get("/{agent_type}", response_model=AgentConfigResponse)
 async def get_agent_config(
-    agent_type: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    agent_type: str, current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
     Get agent configuration by agent_type (protected endpoint).
@@ -136,16 +166,15 @@ async def get_agent_config(
     agent = agent_service.fetch_agent_config(agent_type)
     if not agent:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Agent type not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent type not found"
         )
-    
+
     if agent.get("org_id") != current_user["org_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this agent"
+            detail="Not authorized to access this agent",
         )
-    
+
     return agent
 
 
@@ -153,7 +182,7 @@ async def get_agent_config(
 async def update_agent_config(
     agent_type: str,
     agent_data: AgentConfigUpdate,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """
     Update agent configuration (protected endpoint).
@@ -161,50 +190,45 @@ async def update_agent_config(
     agent = agent_service.fetch_agent_config(agent_type)
     if not agent:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Agent type not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent type not found"
         )
-    
+
     if agent.get("org_id") != current_user["org_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this agent"
+            detail="Not authorized to update this agent",
         )
-    
+
     result = agent_service.update_agent_config(agent_type, agent_data)
     if result["status"] == "fail":
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result["message"]
+            status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"]
         )
     return result
 
 
 @router.delete("/{agent_type}", response_model=Dict[str, Any])
 async def delete_agent(
-    agent_type: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    agent_type: str, current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
-    Delete an agent configuration (protected endpoint).
+    Delete an agent configuration and all associated telephony resources (protected endpoint).
     """
     agent = agent_service.fetch_agent_config(agent_type)
     if not agent:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Agent type not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent type not found"
         )
-    
+
     if agent.get("org_id") != current_user["org_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this agent"
+            detail="Not authorized to delete this agent",
         )
-    
-    result = agent_service.delete_agent(agent_type)
+
+    result = await agent_service.delete_agent(agent_type)
     if result["status"] == "fail":
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result["message"]
+            status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"]
         )
     return result

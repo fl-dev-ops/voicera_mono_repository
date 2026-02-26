@@ -130,6 +130,7 @@ services:
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - LIVEKIT_SIP_OUTBOUND_TRUNK_ID=${LIVEKIT_SIP_OUTBOUND_TRUNK_ID}
       - LIVEKIT_SIP_URI=${LIVEKIT_SIP_URI:-}
+      - LIVEKIT_AGENT_NAME=${LIVEKIT_AGENT_NAME:-voicera-agent}
       - DEFAULT_AGENT_ID=${DEFAULT_AGENT_ID:-}
       # Backend
       - VOICERA_BACKEND_URL=http://backend:8000
@@ -139,6 +140,10 @@ services:
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
       - MINIO_SECURE=false
+      - MINIO_RECORDINGS_BUCKET=${MINIO_RECORDINGS_BUCKET:-recordings}
+      - MINIO_REGION=${MINIO_REGION:-us-east-1}
+      # Egress Recording
+      - ENABLE_EGRESS_RECORDING=${ENABLE_EGRESS_RECORDING:-true}
       # Vobiz API (used to auto-patch inbound_destination on new trunks)
       - VOBIZ_AUTH_ID=${VOBIZ_AUTH_ID}
       - VOBIZ_AUTH_TOKEN=${VOBIZ_AUTH_TOKEN}

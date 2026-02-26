@@ -1,8 +1,8 @@
 """Main entry point for the Voicera LiveKit Voice Agent worker.
 
-Starts BOTH:
-  1. The FastAPI helper server (port 7860) — for /outbound/call/, SIP management, /health
-  2. The LiveKit Agents worker process — listens for rooms and handles calls
+This is a pure LiveKit worker that handles inbound and outbound SIP calls.
+Telephony management (SIP trunks, dispatch rules, outbound calls) has been
+moved to the backend.
 
 Run:
     python main.py start          # production
@@ -10,31 +10,17 @@ Run:
     python main.py connect <room> # connect to a specific room
 """
 
-import multiprocessing
-import sys
-
+import os
 from livekit.agents import WorkerOptions, cli
 
 from api.agent import entrypoint, prewarm
 
-
-def run_fastapi_server():
-    """Start the FastAPI helper server in a separate process."""
-    from api.server import run_server
-
-    run_server(host="0.0.0.0", port=7860, log_level="info")
+# Agent name for dispatch - must match the LiveKit dispatch rule configuration
+# This should be the same as LIVEKIT_AGENT_NAME in the backend
+AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "voicera-agent")
 
 
 if __name__ == "__main__":
-    # Start the FastAPI server in a background process so both
-    # the HTTP API and the LiveKit Worker run in the same container.
-    server_proc = multiprocessing.Process(
-        target=run_fastapi_server,
-        daemon=True,
-        name="fastapi-server",
-    )
-    server_proc.start()
-
     # Run the LiveKit Worker (this blocks until the worker exits).
     # agent_name MUST match the RoomAgentDispatch name on dispatch rules
     # so LiveKit knows to route inbound SIP calls to this worker.
@@ -42,11 +28,6 @@ if __name__ == "__main__":
         WorkerOptions(
             entrypoint_fnc=entrypoint,
             prewarm_fnc=prewarm,
-            agent_name="voicera-agent",
+            agent_name=AGENT_NAME,
         )
     )
-
-    # If the worker exits, also kill the FastAPI server.
-    server_proc.terminate()
-    server_proc.join()
-    sys.exit(0)

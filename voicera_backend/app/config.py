@@ -59,6 +59,13 @@ class Settings:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 
+    # LiveKit Configuration
+    LIVEKIT_URL: str = os.getenv("LIVEKIT_URL", "")
+    LIVEKIT_API_KEY: str = os.getenv("LIVEKIT_API_KEY", "")
+    LIVEKIT_API_SECRET: str = os.getenv("LIVEKIT_API_SECRET", "")
+    LIVEKIT_SIP_URI: str = os.getenv("LIVEKIT_SIP_URI", "")
+    LIVEKIT_AGENT_NAME: str = os.getenv("LIVEKIT_AGENT_NAME", "voicera-agent")
+
     @property
     def mongodb_uri(self) -> str:
         """Build MongoDB connection URI."""
