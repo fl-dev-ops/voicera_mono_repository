@@ -57,7 +57,7 @@ storage.download_recording("call_123", "./call_123.wav")
 
 ## Environment Variables
 ```env
-MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
+AWS_S3_ENDPOINT=localhost:9000
+AWS_S3_ACCESS_KEY=minioadmin
+AWS_S3_SECRET_KEY=minioadmin
 ```

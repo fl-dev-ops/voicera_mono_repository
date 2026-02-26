@@ -63,6 +63,7 @@ from .egress_service import (
     start_room_audio_egress,
     stop_egress,
     wait_for_egress_completion,
+    upload_transcript_json,
 )
 from storage.minio_client import MinIOStorage
 
@@ -179,6 +180,13 @@ class VoiceraAgent(Agent):
             logger.info(f"Sending greeting (inbound): {greeting[:60]}")
             # Use direct TTS for greeting to avoid LLM round-trip latency.
             await self.session.say(greeting)
+            timestamp = datetime.utcnow().isoformat()
+            self._call_data["transcript_lines"].append(
+                f"[{timestamp}] assistant: {greeting}"
+            )
+            self._call_data["transcript_turns"].append(
+                {"ts": timestamp, "speaker": "assistant", "text": greeting}
+            )
 
     async def on_exit(self) -> None:
         """Called when the agent is about to leave the room."""
@@ -205,6 +213,9 @@ class VoiceraAgent(Agent):
         # Transcript capture
         timestamp = datetime.utcnow().isoformat()
         self._call_data["transcript_lines"].append(f"[{timestamp}] user: {user_text}")
+        self._call_data["transcript_turns"].append(
+            {"ts": timestamp, "speaker": "user", "text": user_text}
+        )
         logger.info(f"Transcript [user]: {user_text[:80]}")
 
         # Dedup
@@ -321,6 +332,9 @@ class VoiceraAgent(Agent):
             self._call_data["transcript_lines"].append(
                 f"[{timestamp}] assistant: {text}"
             )
+            self._call_data["transcript_turns"].append(
+                {"ts": timestamp, "speaker": "assistant", "text": text}
+            )
             logger.info(f"Transcript [assistant]: {text[:80]}")
 
 
@@ -362,6 +376,21 @@ async def _save_call_data(
                 call_sid, call_data["transcript_lines"]
             )
             logger.info(f"Saved {len(call_data['transcript_lines'])} transcript lines")
+
+            transcript_json = {
+                "call_sid": call_sid,
+                "saved_at": datetime.utcnow().isoformat(),
+                "lines": call_data["transcript_lines"],
+                "turns": call_data.get("transcript_turns", []),
+            }
+            transcript_json_object = await upload_transcript_json(
+                storage=storage,
+                call_sid=call_sid,
+                transcript_data=transcript_json,
+            )
+            call_data["transcript_json_url"] = (
+                f"minio://transcripts/{transcript_json_object}"
+            )
         except Exception as e:
             logger.error(f"Failed to save transcript: {e}")
     else:
@@ -736,6 +765,7 @@ async def entrypoint(ctx: JobContext) -> None:
         "audio_sample_rate": None,
         "audio_num_channels": None,
         "transcript_lines": [],
+        "transcript_turns": [],
     }
     storage = MinIOStorage.from_env()
 
@@ -812,12 +842,29 @@ async def entrypoint(ctx: JobContext) -> None:
             f"(reason={reason!r})"
         )
 
+        recording_url = f"minio://recordings/calls/{call_sid}.mp3"
+
         # Stop LiveKit Egress recording
         if egress_id:
             try:
                 logger.info(f"Stopping egress: {egress_id}")
                 await stop_egress(egress_id)
-                logger.info(f"Egress stopped: {egress_id}")
+                info = await wait_for_egress_completion(egress_id, timeout=90)
+                if info and info.get("files"):
+                    first_file = info["files"][0]
+                    location = first_file.get("location")
+                    filename = first_file.get("filename")
+                    if location:
+                        recording_url = location
+                    elif filename:
+                        recording_url = f"minio://recordings/{filename}"
+                    logger.info("Egress output for %s: %s", call_sid, recording_url)
+                else:
+                    logger.warning(
+                        "Egress completed without file output for %s (egress_id=%s)",
+                        call_sid,
+                        egress_id,
+                    )
             except Exception as e:
                 logger.warning(f"Error stopping egress: {e}")
 
@@ -837,6 +884,8 @@ async def entrypoint(ctx: JobContext) -> None:
             agent_config=agent_config,
             storage=storage,
             call_start_time=call_start_time,
+            recording_url=recording_url,
+            transcript_json_url=call_data.get("transcript_json_url"),
         )
 
     ctx.add_shutdown_callback(_on_shutdown)
@@ -939,6 +988,17 @@ async def entrypoint(ctx: JobContext) -> None:
                 await asyncio.sleep(0.25)
                 logger.info(f"Sending greeting (outbound): {outbound_greeting[:60]}")
                 await session.say(outbound_greeting)
+                timestamp = datetime.utcnow().isoformat()
+                call_data["transcript_lines"].append(
+                    f"[{timestamp}] assistant: {outbound_greeting}"
+                )
+                call_data["transcript_turns"].append(
+                    {
+                        "ts": timestamp,
+                        "speaker": "assistant",
+                        "text": outbound_greeting,
+                    }
+                )
 
         except Exception as e:
             logger.error(f"Outbound call failed: {e}")

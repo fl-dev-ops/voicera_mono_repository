@@ -233,6 +233,7 @@ class CallRecordingCreate(BaseModel):
     call_sid: str
     recording_url: str
     transcript_url: str
+    transcript_json_url: Optional[str] = None
     transcript_content: Optional[str] = None
     agent_type: str
     call_duration: Optional[float] = None
@@ -246,6 +247,7 @@ class CallRecordingResponse(BaseModel):
     call_sid: str
     recording_url: Optional[str] = None
     transcript_url: Optional[str] = None
+    transcript_json_url: Optional[str] = None
     transcript_content: Optional[str] = None
     agent_type: Optional[str] = None
     call_duration: Optional[float] = None

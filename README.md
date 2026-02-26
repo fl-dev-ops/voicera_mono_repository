@@ -157,9 +157,9 @@ FRONTEND_URL=http://localhost:3000
 INTERNAL_API_KEY=your-internal-api-key
 
 # MinIO Storage
-MINIO_ENDPOINT=minio:9000       # Use 'localhost:9000' for local dev
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
+AWS_S3_ENDPOINT=minio:9000      # Use 'localhost:9000' for local dev
+AWS_S3_ACCESS_KEY=minioadmin
+AWS_S3_SECRET_KEY=minioadmin
 
 # Vobiz Telephony API
 VOBIZ_API_BASE_URL=https://api.vobiz.in/v1
@@ -200,10 +200,10 @@ VOICERA_BACKEND_URL=http://localhost:8000   # Use 'http://backend:8000' in Docke
 INTERNAL_API_KEY=your-internal-api-key      # Must match backend's INTERNAL_API_KEY
 
 # MinIO Storage
-MINIO_ENDPOINT=localhost:9000               # Use 'minio:9000' in Docker
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
-MINIO_SECURE=false
+AWS_S3_ENDPOINT=localhost:9000              # Use 'minio:9000' in Docker
+AWS_S3_ACCESS_KEY=minioadmin
+AWS_S3_SECRET_KEY=minioadmin
+AWS_S3_SECURE=false
 
 # Bhashini STT (cloud-based)
 BHASHINI_API_KEY=your-bhashini-api-key

@@ -27,13 +27,13 @@ def _get_livekit_credentials() -> tuple[str, str, str]:
 
 
 def _get_minio_s3_config() -> Dict[str, str]:
-    """Get MinIO credentials formatted for S3 upload."""
+    """Get S3-compatible config for LiveKit egress upload from AWS_S3_* envs."""
     return {
-        "access_key": os.getenv("MINIO_ACCESS_KEY", ""),
-        "secret": os.getenv("MINIO_SECRET_KEY", ""),
-        "endpoint": os.getenv("MINIO_ENDPOINT", "localhost:9000"),
-        "bucket": os.getenv("MINIO_RECORDINGS_BUCKET", "recordings"),
-        "region": os.getenv("MINIO_REGION", "us-east-1"),
+        "access_key": os.getenv("AWS_S3_ACCESS_KEY", ""),
+        "secret": os.getenv("AWS_S3_SECRET_KEY", ""),
+        "endpoint": os.getenv("AWS_S3_ENDPOINT", "localhost:9000"),
+        "bucket": os.getenv("AWS_S3_RECORDINGS_BUCKET", "recordings"),
+        "region": os.getenv("AWS_S3_REGION", "us-east-1"),
     }
 
 
@@ -71,8 +71,17 @@ async def start_room_audio_egress(
             audio_format.lower(), lk_egress.EncodedFileType.MP3
         )
 
-        # Create S3 upload config for MinIO (S3-compatible)
-        # Note: For MinIO, we use the endpoint and force_path_style=true
+        # LiveKit Cloud egress uploads from cloud workers.
+        # Private/local endpoints (localhost, minio, 127.0.0.1) are unreachable there.
+        endpoint = s3_config["endpoint"].lower()
+        if any(token in endpoint for token in ("localhost", "127.0.0.1", "minio:")):
+            logger.warning(
+                "Egress S3 endpoint looks local/private (%s). "
+                "If using LiveKit Cloud, set AWS_S3_* to a public S3-compatible endpoint.",
+                s3_config["endpoint"],
+            )
+
+        # Create S3 upload config for S3-compatible storage.
         s3_upload = lk_egress.S3Upload(
             access_key=s3_config["access_key"],
             secret=s3_config["secret"],
@@ -270,7 +279,7 @@ async def upload_transcript_json(
     json_bytes = json_content.encode("utf-8")
     buffer = io.BytesIO(json_bytes)
 
-    object_name = f"transcripts/{call_sid}.json"
+    object_name = f"{call_sid}/transcript_json.json"
 
     await asyncio.to_thread(
         storage.client.put_object,

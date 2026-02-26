@@ -64,10 +64,10 @@ voice_2_voice_server/
    export SAMPLE_RATE=8000
    
    # MinIO Configuration
-   export MINIO_ENDPOINT="localhost:9000"
-   export MINIO_ACCESS_KEY="minioadmin"
-   export MINIO_SECRET_KEY="minioadmin"
-   export MINIO_SECURE="false"
+   export AWS_S3_ENDPOINT="localhost:9000"
+   export AWS_S3_ACCESS_KEY="minioadmin"
+   export AWS_S3_SECRET_KEY="minioadmin"
+   export AWS_S3_SECURE="false"
    
    # Backend API (optional)
    export VOICERA_BACKEND_URL="http://localhost:8000"
@@ -204,10 +204,10 @@ Agent configs are JSON files in `agent_configs/`. Example:
 | `JOHNAIC_SERVER_URL` | Yes | - | Public server URL for webhooks |
 | `JOHNAIC_WEBSOCKET_URL` | Yes | - | Public WebSocket URL |
 | `SAMPLE_RATE` | No | 8000 | Audio sample rate in Hz |
-| `MINIO_ENDPOINT` | Yes | - | MinIO server endpoint (e.g., `localhost:9000`) |
-| `MINIO_ACCESS_KEY` | Yes | - | MinIO access key |
-| `MINIO_SECRET_KEY` | Yes | - | MinIO secret key |
-| `MINIO_SECURE` | No | `false` | Use secure connection (HTTPS) for MinIO |
+| `AWS_S3_ENDPOINT` | Yes | - | S3-compatible endpoint (e.g., `localhost:9000` or `s3.amazonaws.com`) |
+| `AWS_S3_ACCESS_KEY` | Yes | - | S3 access key |
+| `AWS_S3_SECRET_KEY` | Yes | - | S3 secret key |
+| `AWS_S3_SECURE` | No | `false` | Use secure connection (HTTPS) |
 | `VOICERA_BACKEND_URL` | No | `http://localhost:8000` | Backend API URL |
 | `INTERNAL_API_KEY` | No | - | Internal API key for backend communication |
 | `OPENAI_API_KEY` | * | - | OpenAI API key |

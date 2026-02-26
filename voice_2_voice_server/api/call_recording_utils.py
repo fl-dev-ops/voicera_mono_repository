@@ -17,6 +17,8 @@ async def submit_call_recording(
     agent_config: dict,
     storage: MinIOStorage,
     call_start_time: float,
+    recording_url: Optional[str] = None,
+    transcript_json_url: Optional[str] = None,
 ) -> None:
     """
     Submit call recording data to the backend API after a call ends.
@@ -39,12 +41,14 @@ async def submit_call_recording(
         call_duration = call_end_time - call_start_time
         end_time_utc = datetime.utcnow().isoformat()
 
-        recording_url = f"minio://recordings/calls/{call_sid}.mp3"
-        transcript_url = f"minio://transcripts/{call_sid}.txt"
+        recording_url = recording_url or f"minio://recordings/calls/{call_sid}.mp3"
+        transcript_url = f"minio://transcripts/{call_sid}/transcript_text.txt"
 
         transcript_content = None
         try:
-            response = await storage.get_object("transcripts", f"{call_sid}.txt")
+            response = await storage.get_object(
+                "transcripts", f"{call_sid}/transcript_text.txt"
+            )
             transcript_content = response.read().decode("utf-8")
             response.close()
             response.release_conn()
@@ -60,6 +64,7 @@ async def submit_call_recording(
             "call_sid": call_sid,
             "recording_url": recording_url,
             "transcript_url": transcript_url,
+            "transcript_json_url": transcript_json_url,
             "transcript_content": transcript_content,
             "agent_type": agent_type,
             "call_duration": call_duration,

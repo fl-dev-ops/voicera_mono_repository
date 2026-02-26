@@ -21,8 +21,8 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_ROOT_USER: ${AWS_S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${AWS_S3_SECRET_KEY}
     volumes:
       - voicera_minio_data:/data
     networks:
@@ -61,9 +61,9 @@ services:
       - QDRANT_URL=http://voicera-qdrant:6333
       - MEMORY_EMBED_MODEL=${MEMORY_EMBED_MODEL:-BAAI/bge-small-en-v1.5}
       - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-91}
-      - MINIO_ENDPOINT=voicera-storage:9000
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - AWS_S3_ENDPOINT=voicera-storage:9000
+      - AWS_S3_ACCESS_KEY=${AWS_S3_ACCESS_KEY:-minioadmin}
+      - AWS_S3_SECRET_KEY=${AWS_S3_SECRET_KEY}
       - VOBIZ_API_BASE_URL=https://api.vobiz.ai/api/v1
       - VOBIZ_ACCOUNT_ID=${VOBIZ_AUTH_ID}
       - VOBIZ_AUTH_ID=${VOBIZ_AUTH_ID}
@@ -126,12 +126,12 @@ services:
       - VOICERA_BACKEND_URL=http://backend:8000
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       # Storage
-      - MINIO_ENDPOINT=voicera-storage:9000
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
-      - MINIO_SECURE=false
-      - MINIO_RECORDINGS_BUCKET=${MINIO_RECORDINGS_BUCKET:-recordings}
-      - MINIO_REGION=${MINIO_REGION:-us-east-1}
+      - AWS_S3_ENDPOINT=voicera-storage:9000
+      - AWS_S3_ACCESS_KEY=${AWS_S3_ACCESS_KEY:-minioadmin}
+      - AWS_S3_SECRET_KEY=${AWS_S3_SECRET_KEY}
+      - AWS_S3_SECURE=false
+      - AWS_S3_RECORDINGS_BUCKET=${AWS_S3_RECORDINGS_BUCKET:-recordings}
+      - AWS_S3_REGION=${AWS_S3_REGION:-us-east-1}
       # Egress Recording
       - ENABLE_EGRESS_RECORDING=${ENABLE_EGRESS_RECORDING:-true}
       # STT / TTS / LLM API keys
